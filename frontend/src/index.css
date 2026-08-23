@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-razor-dark text-slate-200 overflow-x-hidden;
+  }
+}
+
+/* Custom modern sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #080E1A;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1E2D4A;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3395FF;
+}
+
+/* React Flow customizations for Dark Theme */
+.react-flow__node {
+  border-radius: 8px;
+  font-family: inherit;
+}
+
+.react-flow__handle {
+  width: 8px;
+  height: 8px;
+  background: #3395FF;
+  border: 2px solid #0C1628;
+}
+
+.react-flow__edge-path {
+  stroke: #3395FF;
+  stroke-width: 2px;
+}
+
+.react-flow__background {
+  background-color: #0F1A2E !important;
+}
