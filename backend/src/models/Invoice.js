@@ -20,6 +20,20 @@ const invoiceSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
+    customerEmail: {
+      type: String,
+      trim: true,
+      default: function () {
+        const name = this && this.customerName ? this.customerName : 'vendor';
+        const clean = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return `finance@${clean || 'vendor'}.com`;
+      },
+    },
+    customerPhone: {
+      type: String,
+      trim: true,
+      default: '+919876543210',
+    },
     totalAmount: {
       type: Number,
       required: true,
@@ -52,7 +66,9 @@ const invoiceSchema = new mongoose.Schema(
     expectedNetAmount: {
       type: Number,
       default: function () {
-        return this.totalAmount - (this.expectedTdsAmount || 0);
+        const total = this && this.totalAmount ? this.totalAmount : 0;
+        const tds = this && this.expectedTdsAmount ? this.expectedTdsAmount : 0;
+        return total - tds;
       },
     },
     status: {

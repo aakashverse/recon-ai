@@ -341,6 +341,8 @@ export class ReconciliationEngine {
     if (isReconciled) {
       sseManager.broadcast('txn:reconciled', {
         bankTxnId: ledgerDoc.bankTxnId,
+        utrNumber: ledgerDoc.utrNumber,
+        narration: ledgerDoc.narration,
         invoiceNumber: candidateInvoice?.invoiceNumber,
         customerName: candidateInvoice?.customerName,
         matchedTier: resolvedTier,

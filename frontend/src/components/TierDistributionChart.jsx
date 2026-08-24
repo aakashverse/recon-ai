@@ -73,7 +73,7 @@ export function TierDistributionChart({ stats }) {
               <span>Tier 1: Deterministic</span>
               <span className="font-mono text-razor-blue">({t1})</span>
             </div>
-            <p className="text-[10px] text-slate-400 font-mono">&lt;2ms • $0 Cost</p>
+            <p className="text-[10px] text-slate-400 font-mono">&lt;10ms • $0 Cost</p>
           </div>
         </div>
 

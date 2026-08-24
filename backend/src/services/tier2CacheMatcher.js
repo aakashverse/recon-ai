@@ -18,7 +18,7 @@ export async function matchTier2(bankTxn) {
   }
 
   // 2. Identify potential party/invoice tokens from narration
-  const invoiceMatch = rawNarration.match(/\b(INV-\d{4,}-\d+|\bINV-\d{4,}|\b[A-Z]{2,4}-INV-\d+)\b/i);
+  const invoiceMatch = rawNarration.match(/\b(INV[/-]?[A-Z0-9-]+|[A-Z0-9]+-INV[/-]?[A-Z0-9-]+)\b/i);
   const explicitInvNum = invoiceMatch ? invoiceMatch[1].toUpperCase() : null;
 
   for (const rule of activeRules) {
@@ -51,9 +51,9 @@ export async function matchTier2(bankTxn) {
       // Find candidate unpaid invoices for this vendor / invoice number
       const invoiceQuery = { status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } };
       if (explicitInvNum) {
-        invoiceQuery.invoiceNumber = explicitInvNum;
+        invoiceQuery.invoiceNumber = { $regex: new RegExp(`^${explicitInvNum}$`, 'i') };
       } else {
-        invoiceQuery.customerName = { $regex: new RegExp(rule.partyIdentifier, 'i') };
+        invoiceQuery.customerName = { $regex: new RegExp(rule.partyIdentifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') };
       }
 
       const candidateInvoices = await Invoice.find(invoiceQuery).limit(5).lean();

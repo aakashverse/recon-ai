@@ -9,6 +9,7 @@ import { StateMachineDAG } from './components/StateMachineDAG.jsx';
 import { AgenticOutboxModal } from './components/AgenticOutboxModal.jsx';
 import { RulesManagerModal } from './components/RulesManagerModal.jsx';
 import { AISettingsModal } from './components/AISettingsModal.jsx';
+import { DataImporterModal } from './components/DataImporterModal.jsx';
 import SAMPLE_BATCH_50 from './sample-batch-50.json';
 
 
@@ -34,6 +35,7 @@ export default function App() {
   const [selectedTxnForOutbox, setSelectedTxnForOutbox] = useState(null);
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
+  const [isImporterOpen, setIsImporterOpen] = useState(false);
 
   // 0ms In-Memory Instant Filter Pipeline
   const filteredTransactions = useMemo(() => {
@@ -72,16 +74,24 @@ export default function App() {
   }, [transactions, minConfidence, statusFilter, searchQuery]);
 
   const handleRun50Batch = async () => {
+    if (!transactions.length) {
+      setIsImporterOpen(true);
+      return;
+    }
     try {
-      await triggerBatch(SAMPLE_BATCH_50);
+      await triggerBatch(transactions);
     } catch (e) {
       alert(`Batch error: ${e.message}`);
     }
   };
 
   const handleSimulateLiveStream = async () => {
+    if (!transactions.length) {
+      setIsImporterOpen(true);
+      return;
+    }
     // Stream transactions one by one with small intervals
-    for (const txn of SAMPLE_BATCH_50.slice(0, 15)) {
+    for (const txn of transactions.slice(0, 15)) {
       try {
         await fetch('/api/reconciliation/process-single', {
           method: 'POST',
@@ -101,10 +111,12 @@ export default function App() {
       <Header
         isConnected={isConnected}
         isProcessing={isProcessing}
+        totalTransactionsCount={transactions.length}
         onTriggerBatch={handleRun50Batch}
         onSimulateLive={handleSimulateLiveStream}
         onOpenRules={() => setIsRulesModalOpen(true)}
         onOpenAISettings={() => setIsAISettingsOpen(true)}
+        onOpenImporter={() => setIsImporterOpen(true)}
         onReset={resetDashboard}
       />
 
@@ -133,6 +145,7 @@ export default function App() {
           transactions={filteredTransactions}
           onSelectTxn={setSelectedTxnForDAG}
           onOpenOutbox={setSelectedTxnForOutbox}
+          onOpenImporter={() => setIsImporterOpen(true)}
         />
       </main>
 
@@ -160,6 +173,13 @@ export default function App() {
 
       {isAISettingsOpen && (
         <AISettingsModal onClose={() => setIsAISettingsOpen(false)} />
+      )}
+
+      {isImporterOpen && (
+        <DataImporterModal
+          onClose={() => setIsImporterOpen(false)}
+          onFeedImported={() => refreshData()}
+        />
       )}
     </div>
   );

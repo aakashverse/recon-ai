@@ -6,9 +6,231 @@ import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
 import { RuleCache } from '../models/RuleCache.js';
-import { getApiKeyStatus, initGemini } from '../config/ai.js';
+import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, isAIAvailable } from '../config/ai.js';
+import { parseCSV, normalizeBankStatementRows, normalizeInvoiceRows } from '../utils/csvParser.js';
 
 export const reconRouter = express.Router();
+
+/**
+ * Download Sample CSV Template for Invoices
+ */
+reconRouter.get('/template-invoices', (req, res) => {
+  const csv = `Invoice Number,Customer Name,Total Amount,Base Amount,Tax Amount,TDS Section,TDS Rate
+INV-2024-8001,Reliance Retail Ltd,100000,84745.76,15254.24,194C,2
+INV-2024-8002,Tata Digital Services,250000,211864.41,38135.59,194J,10
+INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="invoices_template.csv"');
+  return res.send(csv);
+});
+
+/**
+ * Download Sample CSV Template for Bank Statement Feeds
+ */
+reconRouter.get('/template-bank-feed', (req, res) => {
+  const csv = `Date,Narration,Credit,UTR
+2026-08-23,NEFT-RELIANCE-RETAIL-INV-2024-8001-LESS-2PCT-TDS,98000,AXISN88990011
+2026-08-23,RTGS-TATA-DIGITAL-INV-2024-8002-PROF-FEE-194J,225000,HDFCN99002233
+2026-08-23,IMPS/SWIGGY/INV-2024-8003/SETTLEMENT,74250,ICICIN11223344`;
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="bank_statement_template.csv"');
+  return res.send(csv);
+});
+
+/**
+ * Ingest Real Invoices (CSV Text or JSON Array)
+ */
+reconRouter.post('/import-invoices', async (req, res) => {
+  try {
+    let invoices = [];
+    if (typeof req.body === 'string' || req.body.csvText) {
+      const csvText = typeof req.body === 'string' ? req.body : req.body.csvText;
+      const rawRows = parseCSV(csvText);
+      invoices = normalizeInvoiceRows(rawRows);
+    } else if (Array.isArray(req.body.invoices)) {
+      invoices = normalizeInvoiceRows(req.body.invoices);
+    } else if (Array.isArray(req.body.records)) {
+      invoices = normalizeInvoiceRows(req.body.records);
+    } else if (Array.isArray(req.body)) {
+      invoices = normalizeInvoiceRows(req.body);
+    }
+
+    if (!invoices.length) {
+      return res.status(400).json({ error: 'No valid invoice rows found in payload.' });
+    }
+
+    // Bulk upsert into master database
+    const bulkOps = invoices.map((inv) => ({
+      updateOne: {
+        filter: { invoiceNumber: inv.invoiceNumber },
+        update: { $set: inv },
+        upsert: true,
+      },
+    }));
+
+    await Invoice.bulkWrite(bulkOps);
+
+    return res.json({
+      success: true,
+      message: `Successfully imported & synced ${invoices.length} real enterprise invoices into master database.`,
+      count: invoices.length,
+      sample: invoices.slice(0, 3),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Ingest Real Bank Statement (CSV Text or JSON) & Run Cascaded Engine
+ */
+reconRouter.post('/import-bank-feed', async (req, res) => {
+  try {
+    let rawRows = [];
+    let txns = [];
+
+    if (typeof req.body === 'string' || req.body.csvText) {
+      const csvText = typeof req.body === 'string' ? req.body : req.body.csvText;
+      rawRows = parseCSV(csvText);
+      txns = normalizeBankStatementRows(rawRows);
+    } else if (Array.isArray(req.body.transactions)) {
+      txns = normalizeBankStatementRows(req.body.transactions);
+      rawRows = req.body.transactions;
+    } else if (Array.isArray(req.body.records)) {
+      txns = normalizeBankStatementRows(req.body.records);
+      rawRows = req.body.records;
+    } else if (Array.isArray(req.body)) {
+      txns = normalizeBankStatementRows(req.body);
+      rawRows = req.body;
+    }
+
+    if (!txns.length) {
+      return res.status(400).json({ error: 'No valid bank transactions found in payload.' });
+    }
+
+    // If the uploaded data contains paired invoice fields (e.g. Combined Recon Sheet), auto-upsert Invoices first!
+    const invoices = normalizeInvoiceRows(rawRows);
+    if (invoices.length > 0) {
+      const invoiceBulkOps = invoices.map((inv) => ({
+        updateOne: {
+          filter: { invoiceNumber: inv.invoiceNumber },
+          update: { $set: inv },
+          upsert: true,
+        },
+      }));
+      await Invoice.bulkWrite(invoiceBulkOps).catch((e) => {
+        console.warn('[Auto-Invoice Sync] Bulk write warning:', e.message);
+      });
+    }
+
+    const batchId = `REAL-FEED-${Date.now()}`;
+    
+    // Process in background and stream results over SSE
+    ReconciliationEngine.processBatch(txns, batchId).catch((err) => {
+      console.error('[Real Batch Error]:', err);
+    });
+
+    return res.status(202).json({
+      success: true,
+      message: `Accepted ${txns.length} real bank feed transactions (auto-synced ${invoices.length} invoices). Streaming live reconciliation events over SSE.`,
+      batchId,
+      totalCount: txns.length,
+      sample: txns.slice(0, 3),
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * AI Financial Data Structurer & Normalizer (Gemini / Zod)
+ * Converts messy emails, unstructured statements, and raw OCR text into canonical schema
+ */
+reconRouter.post('/ai-parse-and-structure', async (req, res) => {
+  try {
+    const { rawText, targetType } = req.body;
+    if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
+      return res.status(400).json({ error: 'rawText is required' });
+    }
+
+    const jsonModel = getGeminiModel() || getTextGenModel();
+
+    if (isAIAvailable() && jsonModel) {
+      try {
+        const prompt = `You are Razorpay's Enterprise AI Financial Data Structurer.
+Convert the following unstructured, messy financial text (which could be an email snippet, raw bank statement, check deposit log, or invoice list) into a clean, canonical JSON structure.
+
+Target Schema: ${targetType === 'INVOICES' ? 'INVOICES' : 'BANK_TRANSACTIONS'}
+
+If Target is BANK_TRANSACTIONS, output JSON conforming strictly to:
+{
+  "type": "BANK_TRANSACTIONS",
+  "records": [
+    {
+      "bankTxnId": "TXN-AUTO-01",
+      "utrNumber": "Extracted UTR/Ref or generated string",
+      "amount": 98000,
+      "narration": "Clean extracted narration string",
+      "txnDate": "YYYY-MM-DD"
+    }
+  ]
+}
+
+If Target is INVOICES, output JSON conforming strictly to:
+{
+  "type": "INVOICES",
+  "records": [
+    {
+      "invoiceNumber": "INV-2026-001",
+      "customerName": "Extracted Customer Name",
+      "totalAmount": 100000,
+      "baseAmount": 84745.76,
+      "taxAmount": 15254.24,
+      "expectedTdsSection": "194C" | "194J" | "194H" | "194Q" | "NONE",
+      "expectedTdsRate": 2.0
+    }
+  ]
+}
+
+RAW INPUT TEXT TO CONVERT:
+"""
+${rawText}
+"""
+
+Return ONLY a valid JSON object without code blocks or markdown text.`;
+
+        const result = await textModel.generateContent(prompt);
+        const responseText = result.response.text().trim();
+        const cleanJsonStr = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+        const parsed = JSON.parse(cleanJsonStr);
+
+        return res.json({
+          success: true,
+          source: 'GEMINI_AI_PARSER',
+          type: parsed.type,
+          records: parsed.records || [],
+          message: `Successfully structured ${parsed.records?.length || 0} financial records via Gemini AI.`,
+        });
+      } catch (err) {
+        console.warn('[AI Structurer] Gemini parse failed, falling back to local normalizer:', err.message);
+      }
+    }
+
+    // High-Resilience Local Parser Fallback
+    const rows = parseCSV(rawText);
+    const normalized = targetType === 'INVOICES' ? normalizeInvoiceRows(rows) : normalizeBankStatementRows(rows);
+
+    return res.json({
+      success: true,
+      source: 'LOCAL_HEURISTIC_PARSER',
+      type: targetType,
+      records: normalized,
+      message: `Parsed & structured ${normalized.length} records via intelligent local parser.`,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 /**
  * SSE Real-Time Event Stream Endpoint
@@ -273,6 +495,7 @@ reconRouter.post('/reset', async (req, res) => {
     await Promise.all([
       BankLedger.deleteMany({}),
       ReconciliationEvent.deleteMany({}),
+      Invoice.deleteMany({ invoiceNumber: { $regex: /^BANK-/i } }),
       Invoice.updateMany({}, { $set: { status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null, reconMethod: null } }),
     ]);
 

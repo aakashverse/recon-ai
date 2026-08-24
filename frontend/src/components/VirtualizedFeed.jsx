@@ -6,8 +6,9 @@ export function VirtualizedFeed({
   transactions,
   onSelectTxn,
   onOpenOutbox,
+  onOpenImporter,
 }) {
-  const parentRef = useRef(null);
+  const parentRef = useRef(null); 
 
   const virtualizer = useVirtualizer({
     count: transactions.length,
@@ -18,14 +19,23 @@ export function VirtualizedFeed({
 
   if (!transactions.length) {
     return (
-      <div className="p-12 text-center rounded-xl bg-razor-card border border-razor-border">
-        <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto mb-3">
-          <ShieldCheck className="w-6 h-6 text-slate-500" />
+      <div className="p-14 text-center rounded-xl bg-razor-card border border-razor-border">
+        <div className="w-14 h-14 rounded-2xl bg-slate-800/80 border border-slate-700/60 flex items-center justify-center mx-auto mb-3.5 shadow-lg">
+          <ShieldCheck className="w-7 h-7 text-razor-blue" />
         </div>
-        <h3 className="text-sm font-semibold text-slate-300">No Transactions in Feed</h3>
-        <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-          Click <span className="text-razor-blue font-semibold">"Run 50-Txn Batch"</span> or <span className="text-amber-400 font-semibold">"Stream Live Feed"</span> to trigger the cascaded reconciliation pipeline.
+        <h3 className="text-base font-bold text-slate-200">No Bank Transactions in Feed</h3>
+        <p className="text-xs text-slate-400 mt-1.5 max-w-md mx-auto leading-relaxed">
+          Upload your bank statement feed (CSV/Excel) or real enterprise invoices to start the automated reconciliation pipeline.
         </p>
+        <div className="mt-4">
+          <button
+            onClick={onOpenImporter}
+            className="px-4 py-2 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 transition-all inline-flex items-center gap-1.5 cursor-pointer"
+          >
+            <span>Upload Bank Statement CSV</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     );
   }
@@ -190,24 +200,36 @@ export function VirtualizedFeed({
                 </div>
 
                 {/* Action */}
-                <div className="col-span-1 text-right flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                  {isException ? (
-                    <button
-                      onClick={() => onOpenOutbox(txn)}
-                      className="p-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-400 border border-amber-500/40 transition-colors"
-                      title="Open Agentic WhatsApp / Email Outbox"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => onSelectTxn(txn)}
-                      className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-colors"
-                      title="Inspect DAG Execution Path"
-                    >
-                      <GitBranch className="w-3.5 h-3.5 text-razor-blue" />
-                    </button>
-                  )}
+                <div className="col-span-1 text-right flex items-center justify-end gap-1.5 relative z-20" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onOpenOutbox(txn);
+                    }}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      isException
+                        ? 'bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 border border-amber-500/40 shadow-sm'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700'
+                    }`}
+                    title={isException ? "Open Agentic WhatsApp / Email Dispute Outbox" : "Open Communication Outbox"}
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onSelectTxn(txn);
+                    }}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-all cursor-pointer"
+                    title="Inspect React Flow State Machine DAG"
+                  >
+                    <GitBranch className="w-3.5 h-3.5 text-razor-blue" />
+                  </button>
                 </div>
               </div>
             );

@@ -107,7 +107,7 @@ export function StateMachineDAG({ transaction, onClose }) {
         position: { x: 50, y: 170 },
         data: {
           title: '2. Tier 1: Deterministic Math',
-          subtitle: 'Exact UTR & Hash Lookup (<2ms)',
+          subtitle: 'Exact UTR & Hash Lookup (<10ms)',
           status: tier === 'TIER_1' ? 'SUCCESS' : 'FAILED',
           durationMs: metrics.tier1DurationMs || 1.8,
           tier: 'Tier 1',
