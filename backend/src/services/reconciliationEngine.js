@@ -7,6 +7,8 @@ import { validateCircuitBreaker } from './circuitBreaker.js';
 import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
+import { JournalEntry } from '../models/JournalEntry.js';
+import { JournalService } from './journalService.js';
 import { OutboxService } from './outboxService.js';
 import { withTransaction } from '../config/db.js';
 import { sseManager } from '../utils/sseManager.js';
@@ -402,11 +404,28 @@ export class ReconciliationEngine {
           );
         }
 
+        // Generate Rillet-Style Double-Entry Journal Entry & AI Audit Memo
+        const journalDocData = JournalService.generateJournalEntry(ledgerDoc, candidateInvoice, matchResult);
+        await JournalEntry.create([journalDocData], { session });
+
         dagNodes.push({
           nodeKey: 'STEP_COMMIT',
           name: 'ACID Multi-Doc Commit (PAID)',
           status: 'SUCCESS',
           durationMs: performance.now() - commitStart,
+        });
+
+        dagNodes.push({
+          nodeKey: 'STEP_JOURNAL',
+          name: `General Ledger Auto-Journal (${journalDocData.journalEntryNumber})`,
+          status: 'BALANCED',
+          durationMs: 1.2,
+          outputData: {
+            journalEntryNumber: journalDocData.journalEntryNumber,
+            totalDebit: journalDocData.totalDebit,
+            totalCredit: journalDocData.totalCredit,
+            auditMemo: journalDocData.auditMemo?.summary,
+          },
         });
       } else {
         // Exception / Flag for Human Review

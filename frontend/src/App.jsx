@@ -11,6 +11,7 @@ import { RulesManagerModal } from './components/RulesManagerModal.jsx';
 import { AISettingsModal } from './components/AISettingsModal.jsx';
 import { DataImporterModal } from './components/DataImporterModal.jsx';
 import { FinanceControllerModal } from './components/FinanceControllerModal.jsx';
+import { GeneralLedgerModal } from './components/GeneralLedgerModal.jsx';
 import SAMPLE_BATCH_50 from './sample-batch-50.json';
 
 
@@ -38,6 +39,7 @@ export default function App() {
   const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
   const [isImporterOpen, setIsImporterOpen] = useState(false);
   const [isControllerOpen, setIsControllerOpen] = useState(false);
+  const [isLedgerOpen, setIsLedgerOpen] = useState(false);
 
   // 0ms In-Memory Instant Filter Pipeline
   const filteredTransactions = useMemo(() => {
@@ -116,6 +118,7 @@ export default function App() {
         totalTransactionsCount={transactions.length}
         onTriggerBatch={handleRun50Batch}
         onSimulateLive={handleSimulateLiveStream}
+        onOpenLedger={() => setIsLedgerOpen(true)}
         onOpenRules={() => setIsRulesModalOpen(true)}
         onOpenAISettings={() => setIsAISettingsOpen(true)}
         onOpenImporter={() => setIsImporterOpen(true)}
@@ -131,12 +134,12 @@ export default function App() {
         {/* Tier Distribution Visualizer */}
         <TierDistributionChart stats={stats} />
 
-        {/* 0ms In-Memory Risk Slider & Filters */}
+        {/* 0ms In-Memory Instant Risk Slider & Filter Controls */}
         <RiskSlider
           minConfidence={minConfidence}
           onConfidenceChange={setMinConfidence}
           statusFilter={statusFilter}
-          onStatusFilterChange={setStatusFilter}
+          onStatusChange={setStatusFilter}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
           filteredCount={filteredTransactions.length}
@@ -189,6 +192,13 @@ export default function App() {
         <FinanceControllerModal
           isOpen={isControllerOpen}
           onClose={() => setIsControllerOpen(false)}
+        />
+      )}
+
+      {isLedgerOpen && (
+        <GeneralLedgerModal
+          isOpen={isLedgerOpen}
+          onClose={() => setIsLedgerOpen(false)}
         />
       )}
     </div>

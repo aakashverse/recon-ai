@@ -6,6 +6,8 @@ import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
 import { RuleCache } from '../models/RuleCache.js';
+import { JournalEntry } from '../models/JournalEntry.js';
+import { JournalService } from '../services/journalService.js';
 import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, isAIAvailable } from '../config/ai.js';
 import { parseCSV, normalizeBankStatementRows, normalizeInvoiceRows } from '../utils/csvParser.js';
 
@@ -567,6 +569,7 @@ reconRouter.post('/reset', async (req, res) => {
     await Promise.all([
       BankLedger.deleteMany({}),
       ReconciliationEvent.deleteMany({}),
+      JournalEntry.deleteMany({}),
       Invoice.deleteMany({ invoiceNumber: { $regex: /^BANK-/i } }),
       Invoice.updateMany({}, { $set: { status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null, reconMethod: null } }),
     ]);
@@ -790,6 +793,72 @@ reconRouter.get('/cash-forecast', async (req, res) => {
     };
 
     return res.json(forecast);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rillet-Style AI-Native ERP Innovation 1: Live Trial Balance & Zero-Day Month-End Close
+ * Computes live, balanced General Ledger Trial Balance (Dr = Cr) and continuous close health
+ */
+reconRouter.get('/trial-balance', async (req, res) => {
+  try {
+    const data = await JournalService.getLiveTrialBalance();
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rillet-Style AI-Native ERP Innovation 2: Double-Entry Journal Entry Stream
+ * Returns list of auto-generated journal entries with balanced debits and credits
+ */
+reconRouter.get('/journal-entries', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit || '50', 10);
+    const entries = await JournalEntry.find().sort({ createdAt: -1 }).limit(limit).lean();
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rillet-Style AI-Native ERP Innovation 3: 100% Traceable AI Audit Memo per Transaction
+ * Provides full source traceback (Bank Line -> Invoice -> Tax Math -> Double Entry GL)
+ */
+reconRouter.get('/audit-memo/:bankTxnId', async (req, res) => {
+  try {
+    const { bankTxnId } = req.params;
+    const [bankTxn, event, journal] = await Promise.all([
+      BankLedger.findOne({ bankTxnId }).populate('reconciledInvoiceId').lean(),
+      ReconciliationEvent.findOne({ bankTxnId }).populate('invoiceId').lean(),
+      JournalEntry.findOne({ bankTxnId }).lean(),
+    ]);
+
+    if (!bankTxn) {
+      return res.status(404).json({ error: 'Transaction not found in ledger.' });
+    }
+
+    const memo = {
+      bankTxnId,
+      status: bankTxn.reconciliationStatus,
+      matchedTier: bankTxn.matchedTier,
+      confidenceScore: bankTxn.confidenceScore,
+      bankAmount: bankTxn.amount,
+      narration: bankTxn.narration,
+      utrNumber: bankTxn.utrNumber,
+      invoice: bankTxn.reconciledInvoiceId || event?.invoiceId || null,
+      deductions: bankTxn.deductionsApplied || {},
+      circuitBreaker: event?.circuitBreakerResult || bankTxn.discrepancyDetails || null,
+      journalEntry: journal || null,
+      cryptographicEventHash: event?.eventHash || 'GENESIS',
+      auditMemoSummary: journal?.auditMemo?.summary || bankTxn.discrepancyDetails?.reason || 'Transaction recorded in cryptographic audit ledger.',
+    };
+
+    return res.json(memo);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

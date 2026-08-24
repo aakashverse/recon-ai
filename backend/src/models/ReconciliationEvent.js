@@ -13,6 +13,7 @@ const dagNodeSchema = new mongoose.Schema(
         'STEP_TIER_4',
         'STEP_CIRCUIT_BREAKER',
         'STEP_COMMIT',
+        'STEP_JOURNAL',
         'STEP_OUTBOX',
       ],
     },
@@ -20,7 +21,7 @@ const dagNodeSchema = new mongoose.Schema(
     tier: { type: String, default: null },
     status: {
       type: String,
-      enum: ['PENDING', 'RUNNING', 'SUCCESS', 'BYPASSED', 'FAILED', 'DISCREPANCY_DETECTED'],
+      enum: ['PENDING', 'RUNNING', 'SUCCESS', 'BALANCED', 'BYPASSED', 'FAILED', 'DISCREPANCY_DETECTED'],
       required: true,
     },
     durationMs: { type: Number, default: 0 },
