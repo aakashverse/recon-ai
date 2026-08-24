@@ -412,7 +412,7 @@ export class ReconciliationEngine {
         // Exception / Flag for Human Review
         ledgerDoc.reconciliationStatus = 'EXCEPTION';
         ledgerDoc.matchedTier = null;
-        ledgerDoc.confidenceScore = matchResult?.confidence || 0.2;
+        ledgerDoc.confidenceScore = matchResult?.confidence || (candidateInvoice ? 0.35 : 0.18);
         ledgerDoc.discrepancyDetails = {
           expectedAmount: candidateInvoice ? candidateInvoice.totalAmount : null,
           actualReceived: ledgerDoc.amount,
@@ -477,7 +477,7 @@ export class ReconciliationEngine {
             dagNodes,
             resolvedTier: isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION',
             circuitBreakerResult,
-            confidence: matchResult?.confidence || (isReconciled ? 1.0 : 0.2),
+            confidence: matchResult?.confidence || (isReconciled ? 0.95 : candidateInvoice ? 0.35 : 0.18),
             ragCacheHit,
             totalDurationMs: performance.now() - totalStart,
             rawNarration: ledgerDoc.narration,

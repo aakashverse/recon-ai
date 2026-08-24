@@ -24,51 +24,53 @@ function CustomDAGNode({ data }) {
   let badgeColor = 'bg-slate-800 text-slate-400';
 
   if (isSuccess) {
-    borderColor = 'border-emerald-500/80 shadow-lg shadow-emerald-500/10';
-    bgColor = 'bg-slate-900';
-    badgeColor = 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40';
+    borderColor = 'border-emerald-500/90 shadow-lg shadow-emerald-500/20 ring-1 ring-emerald-500/30';
+    bgColor = 'bg-slate-900/95';
+    badgeColor = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
   } else if (isDiscrepancy) {
-    borderColor = 'border-amber-500/80 shadow-lg shadow-amber-500/10';
-    bgColor = 'bg-slate-900';
-    badgeColor = 'bg-amber-500/20 text-amber-400 border border-amber-500/40';
+    borderColor = 'border-amber-500/90 shadow-lg shadow-amber-500/20 ring-1 ring-amber-500/30';
+    bgColor = 'bg-slate-900/95';
+    badgeColor = 'bg-amber-500/20 text-amber-300 border border-amber-500/40';
   } else if (isBypassed) {
-    borderColor = 'border-slate-800 border-dashed opacity-60';
-    bgColor = 'bg-slate-950/80';
+    borderColor = 'border-slate-800 border-dashed opacity-50';
+    bgColor = 'bg-slate-950/60';
     badgeColor = 'bg-slate-800/60 text-slate-500';
   } else if (isFailed) {
-    borderColor = 'border-rose-500/60';
-    bgColor = 'bg-slate-900';
-    badgeColor = 'bg-rose-500/20 text-rose-400';
+    borderColor = 'border-rose-500/60 opacity-80';
+    bgColor = 'bg-slate-900/90';
+    badgeColor = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
   }
 
   return (
-    <div className={`w-64 rounded-xl border p-3 ${borderColor} ${bgColor} text-xs shadow-md transition-all`}>
-      <Handle type="target" position={Position.Top} className="!bg-razor-blue" />
+    <div className={`w-[260px] rounded-xl border p-3.5 ${borderColor} ${bgColor} text-xs shadow-xl transition-all select-none`}>
+      <Handle type="target" position={Position.Top} className="!bg-razor-blue !w-2.5 !h-2.5" />
+      <Handle type="target" id="left" position={Position.Left} className="!bg-slate-600 !w-2 !h-2" />
       
       <div className="flex items-center justify-between gap-1 mb-1.5">
         <span className="font-bold text-white tracking-tight truncate">{title}</span>
-        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full font-semibold ${badgeColor}`}>
+        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${badgeColor}`}>
           {status}
         </span>
       </div>
 
-      {subtitle && <p className="text-[11px] text-slate-400 leading-tight mb-2">{subtitle}</p>}
+      {subtitle && <p className="text-[11px] text-slate-400 leading-tight mb-2 font-medium">{subtitle}</p>}
 
       {details && (
-        <div className="mt-2 p-2 rounded bg-slate-950/80 border border-slate-800 font-mono text-[10px] text-slate-300 leading-snug break-words">
+        <div className="mt-2 p-2 rounded-lg bg-slate-950/90 border border-slate-800/80 font-mono text-[10px] text-slate-300 leading-snug break-words max-h-24 overflow-y-auto">
           {details}
         </div>
       )}
 
-      <div className="mt-2 pt-1.5 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
-        <span className="flex items-center gap-1">
+      <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-mono text-slate-400">
+        <span className="flex items-center gap-1.5">
           <Clock className="w-3 h-3 text-slate-400" />
           {durationMs !== undefined ? `${Number(durationMs).toFixed(1)}ms` : '0ms'}
         </span>
-        {tier && <span className="text-razor-blue font-semibold">{tier}</span>}
+        {tier && <span className="text-razor-blue font-semibold px-1.5 py-0.5 rounded bg-razor-blue/10 border border-razor-blue/20">{tier}</span>}
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-razor-blue" />
+      <Handle type="source" id="right" position={Position.Right} className="!bg-slate-600 !w-2 !h-2" />
+      <Handle type="source" position={Position.Bottom} className="!bg-razor-blue !w-2.5 !h-2.5" />
     </div>
   );
 }
@@ -81,7 +83,7 @@ export function StateMachineDAG({ transaction, onClose }) {
   const metrics = transaction.executionMetrics || {};
   const cb = transaction.circuitBreaker || {};
 
-  // Build DAG Graph dynamically with 4 Tiers
+  // Build DAG Graph dynamically with clean, non-overlapping coordinates across 4 Tiers
   const { nodes, edges } = useMemo(() => {
     const isMatched = transaction.reconciliationStatus === 'MATCHED';
     const tier = transaction.matchedTier;
@@ -90,62 +92,62 @@ export function StateMachineDAG({ transaction, onClose }) {
       {
         id: '1',
         type: 'custom',
-        position: { x: 300, y: 15 },
+        position: { x: 460, y: 20 },
         data: {
           title: '1. Ingest & Idempotency Guard',
           subtitle: `SHA-256 Hash: ${transaction.bankTxnId}`,
           status: 'SUCCESS',
           durationMs: 0.4,
           tier: 'Guard',
-          details: `Payload: ₹${Number(transaction.amount || 0).toLocaleString('en-IN')} | UTR: ${transaction.utrNumber || 'N/A'}`,
+          details: `Amount: ₹${Number(transaction.amount || 0).toLocaleString('en-IN')} | UTR: ${transaction.utrNumber || 'N/A'}`,
         },
       },
       {
         id: '2',
         type: 'custom',
-        position: { x: 50, y: 150 },
+        position: { x: 20, y: 220 },
         data: {
           title: '2. Tier 1: Deterministic Exact',
           subtitle: 'Exact Gross & UTR Match (<2ms)',
           status: tier === 'TIER_1' ? 'SUCCESS' : 'FAILED',
           durationMs: metrics.tier1DurationMs || 1.2,
           tier: 'Tier 1',
-          details: tier === 'TIER_1' ? 'Exact gross invoice match found ($0 deductions)' : 'Has deductions/variance, falling back to Tier 2',
+          details: tier === 'TIER_1' ? 'Exact gross invoice match found ($0 deductions)' : 'Has deductions/variance, cascading to Tier 2',
         },
       },
       {
         id: '3',
         type: 'custom',
-        position: { x: 320, y: 150 },
+        position: { x: 310, y: 220 },
         data: {
           title: '3. Tier 2: Tolerance & Split',
-          subtitle: 'Statutory TDS, Bank Fees, Split-Match (<5ms)',
+          subtitle: 'Statutory TDS, Split-Match (<5ms)',
           status: tier === 'TIER_2' ? 'SUCCESS' : tier === 'TIER_1' ? 'BYPASSED' : 'FAILED',
           durationMs: metrics.tier2DurationMs || (tier === 'TIER_1' ? 0 : 3.5),
           tier: 'Tier 2',
-          details: tier === 'TIER_2' ? 'Explainable statutory TDS / split match verified' : tier === 'TIER_1' ? 'Bypassed (Resolved in Tier 1)' : 'Delta unexplained, checking Rule Cache',
+          details: tier === 'TIER_2' ? 'Explainable statutory TDS / split match verified' : tier === 'TIER_1' ? 'Bypassed (Resolved in Tier 1)' : 'Delta unexplained, cascading to Tier 3',
         },
       },
       {
         id: '4',
         type: 'custom',
-        position: { x: 590, y: 150 },
+        position: { x: 600, y: 220 },
         data: {
           title: '4. Tier 3: Rule Cache',
-          subtitle: 'Historical Vendor Pattern Match (<10ms)',
+          subtitle: 'Vendor Pattern Cache (<10ms)',
           status: tier === 'TIER_3' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'BYPASSED' : 'FAILED',
           durationMs: metrics.tier3DurationMs || (tier === 'TIER_1' || tier === 'TIER_2' ? 0 : 4.5),
           tier: 'Tier 3',
-          details: tier === 'TIER_3' ? 'Matched learned vendor deduction rule' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'Bypassed' : 'No rule found, falling back to GenAI',
+          details: tier === 'TIER_3' ? 'Matched learned vendor deduction rule' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'Bypassed' : 'No rule found, cascading to Tier 4',
         },
       },
       {
         id: '5',
         type: 'custom',
-        position: { x: 320, y: 310 },
+        position: { x: 890, y: 220 },
         data: {
           title: '5. Tier 4: GenAI & RAG Pool',
-          subtitle: 'Gemini 1.5 Flash + RAG Fuzzy Cache (p-limit 5)',
+          subtitle: 'Gemini Flash + RAG Cache (p-limit 5)',
           status: tier === 'TIER_4' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2' || tier === 'TIER_3') ? 'BYPASSED' : 'DISCREPANCY_DETECTED',
           durationMs: metrics.tier4DurationMs || (tier === 'TIER_4' ? 18.5 : 0),
           tier: 'Tier 4',
@@ -155,10 +157,10 @@ export function StateMachineDAG({ transaction, onClose }) {
       {
         id: '6',
         type: 'custom',
-        position: { x: 320, y: 460 },
+        position: { x: 460, y: 450 },
         data: {
-          title: '6. The Circuit Breaker (Node.js)',
-          subtitle: 'Zero-Trust Arithmetic Verification',
+          title: '6. Zero-Trust Circuit Breaker',
+          subtitle: 'Mathematical Equation Proof',
           status: isMatched ? 'SUCCESS' : 'DISCREPANCY_DETECTED',
           durationMs: metrics.circuitBreakerDurationMs || 0.4,
           tier: 'Circuit Breaker',
@@ -168,7 +170,7 @@ export function StateMachineDAG({ transaction, onClose }) {
       {
         id: '7',
         type: 'custom',
-        position: { x: 320, y: 610 },
+        position: { x: 460, y: 670 },
         data: {
           title: isMatched ? '7. ACID Multi-Doc Commit (PAID)' : '7. Agentic Outbox Queue',
           subtitle: isMatched ? 'Status: PAID • Reconciled' : 'Status: FLAGGED_FOR_HUMAN',
@@ -182,14 +184,14 @@ export function StateMachineDAG({ transaction, onClose }) {
 
     const graphEdges = [
       { id: 'e1-2', source: '1', target: '2', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e1-3', source: '1', target: '3', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e1-4', source: '1', target: '4', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e2-6', source: '2', target: '6', type: 'smoothstep', animated: tier === 'TIER_1', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e3-6', source: '3', target: '6', type: 'smoothstep', animated: tier === 'TIER_2', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e4-6', source: '4', target: '6', type: 'smoothstep', animated: tier === 'TIER_3', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e4-5', source: '4', target: '5', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e5-6', source: '5', target: '6', type: 'smoothstep', animated: tier === 'TIER_4', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e6-7', source: '6', target: '7', type: 'smoothstep', animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e2-3', source: '2', target: '3', sourceHandle: 'right', targetHandle: 'left', type: 'smoothstep', style: { strokeDasharray: '4,4' }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e3-4', source: '3', target: '4', sourceHandle: 'right', targetHandle: 'left', type: 'smoothstep', style: { strokeDasharray: '4,4' }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e4-5', source: '4', target: '5', sourceHandle: 'right', targetHandle: 'left', type: 'smoothstep', style: { strokeDasharray: '4,4' }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e2-6', source: '2', target: '6', type: 'smoothstep', animated: tier === 'TIER_1', style: { stroke: tier === 'TIER_1' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_1' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e3-6', source: '3', target: '6', type: 'smoothstep', animated: tier === 'TIER_2', style: { stroke: tier === 'TIER_2' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_2' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e4-6', source: '4', target: '6', type: 'smoothstep', animated: tier === 'TIER_3', style: { stroke: tier === 'TIER_3' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_3' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e5-6', source: '5', target: '6', type: 'smoothstep', animated: tier === 'TIER_4' || !isMatched, style: { stroke: tier === 'TIER_4' ? '#10B981' : !isMatched ? '#F59E0B' : '#334155', strokeWidth: tier === 'TIER_4' || !isMatched ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e6-7', source: '6', target: '7', type: 'smoothstep', animated: true, style: { stroke: isMatched ? '#10B981' : '#F59E0B', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed } },
     ];
 
     return { nodes: graphNodes, edges: graphEdges };

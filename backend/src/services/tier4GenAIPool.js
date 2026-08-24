@@ -328,7 +328,7 @@ export async function matchTier4(bankTxn, options = {}) {
           invoice,
           aiExtraction: aiResult,
           ragCacheHit,
-          confidence: ragCacheHit ? 0.96 : (aiResult.confidenceScore || 0.90),
+          confidence: ragCacheHit ? 0.92 : (aiResult.confidenceScore ? Math.min(aiResult.confidenceScore, 0.86) : 0.83),
           deductions: {
             tdsAmount: Number(calculatedTds.toFixed(2)),
             tdsRate,
@@ -354,7 +354,7 @@ export async function matchTier4(bankTxn, options = {}) {
           invoice,
           aiExtraction: aiResult,
           ragCacheHit,
-          confidence: ragCacheHit ? 0.96 : (aiResult.confidenceScore || 0.90),
+          confidence: ragCacheHit ? 0.92 : (aiResult.confidenceScore ? Math.min(aiResult.confidenceScore, 0.86) : 0.83),
           deductions: {
             tdsAmount: Number(calculatedTdsBase.toFixed(2)),
             tdsRate,

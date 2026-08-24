@@ -22,14 +22,14 @@ export async function matchTier1(bankTxn) {
     }).lean();
   }
 
-  // 2. Fallback: Lookup by Exact Vendor Name match in narration + Exact Gross Amount
+  // 2. Lookup by Vendor Name match in narration + Exact Gross Amount
   if (!candidateInvoice && rawNarration) {
     const allUnpaid = await Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean();
     for (const inv of allUnpaid) {
       const cleanVendor = (inv.customerName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
       
-      if (cleanVendor && (cleanNarration.includes(cleanVendor) || cleanVendor.includes(cleanNarration))) {
+      if (cleanVendor && cleanVendor.length > 3 && (cleanNarration.includes(cleanVendor) || cleanVendor.includes(cleanNarration))) {
         if (Math.abs(inv.totalAmount - bankAmount) < 0.01) {
           candidateInvoice = inv;
           break;
@@ -38,19 +38,7 @@ export async function matchTier1(bankTxn) {
     }
   }
 
-  // 3. Fallback: If only a single unpaid invoice in the database matches this exact gross amount
-  if (!candidateInvoice && bankAmount > 0) {
-    const matchingInvoices = await Invoice.find({
-      totalAmount: bankAmount,
-      status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-    }).limit(2).lean();
-
-    if (matchingInvoices.length === 1) {
-      candidateInvoice = matchingInvoices[0];
-    }
-  }
-
-  // 4. Exact Gross Amount Match Verification (Strictly 0 Deductions for Tier 1)
+  // 3. Exact Gross Amount Match Verification (Strictly 0 Deductions for Tier 1)
   if (candidateInvoice) {
     const diff = Math.abs(candidateInvoice.totalAmount - bankAmount);
     if (diff < 0.01) {
@@ -59,7 +47,7 @@ export async function matchTier1(bankTxn) {
         matched: true,
         tier: 'TIER_1',
         invoice: candidateInvoice,
-        confidence: 1.0,
+        confidence: 0.99,
         deductions: {
           tdsAmount: 0,
           tdsRate: 0,

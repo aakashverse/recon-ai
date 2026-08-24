@@ -29,12 +29,12 @@ export async function matchTier3(bankTxn) {
       matchesRule = true;
     }
 
-    // Check keyword criteria
+    // Check keyword criteria (any vendor keyword alias matches)
     if (!matchesRule && rule.matchCriteria?.narrationKeywords?.length) {
-      const allKeywordsPresent = rule.matchCriteria.narrationKeywords.every((kw) =>
+      const anyKeywordPresent = rule.matchCriteria.narrationKeywords.some((kw) =>
         rawNarration.includes(kw.toUpperCase())
       );
-      if (allKeywordsPresent) matchesRule = true;
+      if (anyKeywordPresent) matchesRule = true;
     }
 
     // Check regex pattern
@@ -53,7 +53,10 @@ export async function matchTier3(bankTxn) {
       if (explicitInvNum) {
         invoiceQuery.invoiceNumber = { $regex: new RegExp(`^${explicitInvNum}$`, 'i') };
       } else {
-        invoiceQuery.customerName = { $regex: new RegExp(rule.partyIdentifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') };
+        const vendorFilters = [rule.partyIdentifier, ...(rule.matchCriteria?.narrationKeywords || [])].filter(Boolean);
+        invoiceQuery.$or = vendorFilters.map((kw) => ({
+          customerName: { $regex: new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+        }));
       }
 
       const candidateInvoices = await Invoice.find(invoiceQuery).limit(5).lean();
@@ -86,7 +89,7 @@ export async function matchTier3(bankTxn) {
             tier: 'TIER_3',
             invoice,
             ruleApplied: rule,
-            confidence: rule.confidence || 0.96,
+            confidence: rule.confidence ? Math.min(rule.confidence, 0.93) : 0.91,
             deductions: {
               tdsAmount: Number(tdsAmount.toFixed(2)),
               tdsRate,

@@ -43,7 +43,7 @@ app.use((err, req, res, next) => {
 async function startServer() {
   try {
     await connectDB();
-    const server = app.listen(PORT | 8080, () => {
+    const server = app.listen(PORT, () => {
       console.log(`\n===============================================================`);
       console.log(`🚀 Razorpay B2B AI Finance Controller Backend running on port ${PORT}`);
       console.log(`📡 SSE Stream: http://localhost:${PORT}/api/reconciliation/stream`);

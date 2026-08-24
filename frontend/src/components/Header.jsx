@@ -37,7 +37,7 @@ export function Header({
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Enterprise B2B 4-Tier AI Finance Controller • Zero-Trust Circuit Breaker
+              Enterprise B2B 4-Tier AI Finance Controller
             </p>
           </div>
         </div>
@@ -51,7 +51,7 @@ export function Header({
             title="Upload Real Bank Statements or Invoices (CSV / Excel / JSON)"
           >
             <UploadCloud className="w-4 h-4 text-white" />
-            <span>Import Real CSV / Data</span>
+            <span>Import CSV / Data</span>
           </button>
 
           {/* Export Auditor CSV */}
@@ -106,8 +106,8 @@ export function Header({
               {isProcessing
                 ? 'Reconciling...'
                 : hasTransactions
-                ? `Reconcile Feed (${totalTransactionsCount} Txns)`
-                : 'Reconcile Feed (No Data)'}
+                ? `Reconcile (${totalTransactionsCount} Txns)`
+                : 'Reconcile (No Data)'}
             </span>
           </button>
         </div>

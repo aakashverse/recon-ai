@@ -1,0 +1,182 @@
+[
+  {
+    "bankTxnId": "TXN-01",
+    "txnDate": "2026-08-01",
+    "utrNumber": "AXISN098273641",
+    "amount": 100000,
+    "narration": "NEFT-AXISN098273641-INV-2024-1001-TECHCORP",
+    "expectedTier": "TIER_1",
+    "expectedResult": "Exact Match with INV-2024-1001 (0 deductions) (99% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-02",
+    "txnDate": "2026-08-01",
+    "utrNumber": "HDFCN112233445",
+    "amount": 50000,
+    "narration": "CMS-HDFCN112233445-INV-2024-1002-ACME",
+    "expectedTier": "TIER_1",
+    "expectedResult": "Exact Match with INV-2024-1002 (0 deductions) (99% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-03",
+    "txnDate": "2026-08-02",
+    "utrNumber": "ICICIN998877665",
+    "amount": 250000,
+    "narration": "RTGS-ICICIN998877665-INV-2024-1003-CLOUDSCALE",
+    "expectedTier": "TIER_1",
+    "expectedResult": "Exact Match with INV-2024-1003 (0 deductions) (99% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-04",
+    "txnDate": "2026-08-02",
+    "utrNumber": "SBIN883377112",
+    "amount": 74250,
+    "narration": "NEFT-INV-2024-1004-APEX-DATA-TDS-1PCT",
+    "expectedTier": "TIER_2",
+    "expectedResult": "Statutory 1% TDS Sec 194C ($750 deduction) on INV-2024-1004 (95% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-05",
+    "txnDate": "2026-08-03",
+    "utrNumber": "PUNB992211445",
+    "amount": 117600,
+    "narration": "IFT-BLUESKY-INV-2024-1005-TDS-2PCT",
+    "expectedTier": "TIER_2",
+    "expectedResult": "Statutory 2% TDS Sec 194C ($2400 deduction) on INV-2024-1005 (95% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-06",
+    "txnDate": "2026-08-03",
+    "utrNumber": "BARB445566778",
+    "amount": 304000,
+    "narration": "RTGS-NOVA-INV-2024-1007-TDS-5PCT-194H",
+    "expectedTier": "TIER_2",
+    "expectedResult": "Statutory 5% TDS Sec 194H ($16000 deduction) on INV-2024-1007 (95% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-07",
+    "txnDate": "2026-08-04",
+    "utrNumber": "UTIB556677889",
+    "amount": 85500,
+    "narration": "NEFT-KORE-INV-2024-1008-TDS-10PCT-194J",
+    "expectedTier": "TIER_2",
+    "expectedResult": "Statutory 10% TDS Sec 194J ($9500 deduction) on INV-2024-1008 (95% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-08",
+    "txnDate": "2026-08-04",
+    "utrNumber": "INDB778899001",
+    "amount": 149950,
+    "narration": "CMS-VANGUARD-INV-2024-1010-WIRE-FEE-50",
+    "expectedTier": "TIER_2",
+    "expectedResult": "Flat Bank Gateway Fee ($50 deduction) on INV-2024-1010 (89% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-09",
+    "txnDate": "2026-08-05",
+    "utrNumber": "ICICIN881177223",
+    "amount": 225000,
+    "narration": "CMS-SPLIT-SETTLEMENT-INV-2024-1006-AND-INV-2024-1009",
+    "expectedTier": "TIER_2",
+    "expectedResult": "Bounded Split-Match settling INV-2024-1006 (180k) + INV-2024-1009 (45k) (90% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-10",
+    "txnDate": "2026-08-05",
+    "utrNumber": "HDFCN554433221",
+    "amount": 180000,
+    "narration": "INFOSYS LIMITED CONSULTING CHARGES REMITTANCE",
+    "expectedTier": "TIER_3",
+    "expectedResult": "Historical Rule Match: Infosys 10% TDS rule on INV-2024-2001 (91% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-11",
+    "txnDate": "2026-08-06",
+    "utrNumber": "SBIN332211990",
+    "amount": 294000,
+    "narration": "TATA CONSULTANCY SERVICES MONTHLY CONTRACT SETTLEMENT",
+    "expectedTier": "TIER_3",
+    "expectedResult": "Historical Rule Match: TCS 2% TDS rule on INV-2024-2003 (91% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-12",
+    "txnDate": "2026-08-06",
+    "utrNumber": "ICICIN665544332",
+    "amount": 147000,
+    "narration": "WIPRO TECHNOLOGIES CORP VENDOR DISBURSEMENT",
+    "expectedTier": "TIER_3",
+    "expectedResult": "Historical Rule Match: Wipro 2% TDS rule on INV-2024-2005 (91% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-13",
+    "txnDate": "2026-08-07",
+    "utrNumber": "CITIN994433221",
+    "amount": 144000,
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO1-HEXAWAVE-SERVICES-DEPT",
+    "expectedTier": "TIER_4",
+    "expectedResult": "GenAI OCR Typo Extraction: 2O24-3OO1 resolved to INV-2024-3001 (83% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-14",
+    "txnDate": "2026-08-07",
+    "utrNumber": "CITIN994433222",
+    "amount": 88200,
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO2-DELTA-REGIONAL-OFFICE",
+    "expectedTier": "TIER_4",
+    "expectedResult": "RAG Cache-First Hit: Reuses normalized fingerprint pattern ($0 LLM cost) (92% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-15",
+    "txnDate": "2026-08-08",
+    "utrNumber": "CITIN994433223",
+    "amount": 189000,
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO4-OMNISECURE-CENTRAL-PAYMENT",
+    "expectedTier": "TIER_4",
+    "expectedResult": "GenAI OCR Typo Extraction: 2O24-3OO4 resolved to INV-2024-3004 (85% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-16",
+    "txnDate": "2026-08-08",
+    "utrNumber": "AXISN991100223",
+    "amount": 82000,
+    "narration": "NEFT-INV-2024-4001-DISPUTED-CORP-SHORTAGE",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "expectedResult": "Circuit Breaker Caught: Rs 18000 unexplained deduction -> WhatsApp/Email Draft (35% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-17",
+    "txnDate": "2026-08-09",
+    "utrNumber": "HDFCN992211883",
+    "amount": 215000,
+    "narration": "NEFT-INV-2024-4002-FAULTY-DEDUCTIONS-EXCESS",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "expectedResult": "Circuit Breaker Caught: Rs 15000 overpayment variance -> Outbox (35% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-18",
+    "txnDate": "2026-08-09",
+    "utrNumber": "KKBK776655441",
+    "amount": 412000,
+    "narration": "NEFT-UNREGISTERED-OVERSEAS-SUPPLIER-INV-9999-REMITTANCE",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "expectedResult": "Unmapped Transaction -> Dispatched to Exception Queue (18% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-19",
+    "txnDate": "2026-08-10",
+    "utrNumber": "UPI998877665544",
+    "amount": 33333,
+    "narration": "UPI-TRANSFER-UNKNOWN-REF-NO-MATCH",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "expectedResult": "Unmapped Remittance -> Dispatched to Exception Queue (18% Confidence)"
+  },
+  {
+    "bankTxnId": "TXN-20",
+    "txnDate": "2026-08-10",
+    "utrNumber": "AXISN098273641",
+    "amount": 100000,
+    "narration": "NEFT-AXISN098273641-INV-2024-1001-TECHCORP",
+    "expectedTier": "DUPLICATE_REJECTED",
+    "expectedResult": "SHA-256 Idempotency Guard: Replay of TXN-01 safely rejected"
+  }
+]
