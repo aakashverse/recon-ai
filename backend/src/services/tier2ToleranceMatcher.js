@@ -32,7 +32,7 @@ export async function matchTier2(bankTxn) {
   const bankAmount = Number(bankTxn.amount);
 
   // 1. Identify potential invoice or vendor tokens from narration
-  const invoiceMatch = rawNarration.match(/\b(INV[/-]?[A-Z0-9-]+|[A-Z0-9]+-INV[/-]?[A-Z0-9-]+)\b/i);
+  const invoiceMatch = rawNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || rawNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
   let explicitInvoice = null;
 
   if (invoiceMatch) {
@@ -276,13 +276,14 @@ function findBoundedSplitMatch(invoices, targetAmount, narration) {
   if (invoices.length < 2) return null;
 
   const upperNarration = (narration || '').toUpperCase();
+  const invMatches = upperNarration.match(/\bINV[-_]?[A-Z0-9]+/gi) || [];
   const hasSplitIntent =
     upperNarration.includes('SPLIT') ||
     upperNarration.includes('MULTI') ||
     upperNarration.includes(' AND ') ||
     upperNarration.includes(' + ') ||
     upperNarration.includes('&') ||
-    (upperNarration.match(/INV/g) || []).length >= 2;
+    invMatches.length >= 2;
 
   // Filter or prioritize invoices matching vendor keywords in narration
   const cleanNarration = (narration || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -330,7 +331,10 @@ function findBoundedSplitMatch(invoices, targetAmount, narration) {
         const sum = a.totalAmount + b.totalAmount + c.totalAmount;
 
         if (Math.abs(sum - targetAmount) <= 1.05) {
-          return { invoices: [a, b, c] };
+          const sameCustomer = (a.customerName && b.customerName && c.customerName && a.customerName === b.customerName && b.customerName === c.customerName);
+          if (hasSplitIntent || sameCustomer) {
+            return { invoices: [a, b, c] };
+          }
         }
         if (sum > targetAmount + 1) break;
       }
@@ -355,7 +359,10 @@ function findBoundedSplitMatch(invoices, targetAmount, narration) {
           const sum = a.totalAmount + b.totalAmount + c.totalAmount + d.totalAmount;
 
           if (Math.abs(sum - targetAmount) <= 1.05) {
-            return { invoices: [a, b, c, d] };
+            const sameCustomer = (a.customerName && b.customerName && c.customerName && d.customerName && a.customerName === b.customerName && b.customerName === c.customerName && c.customerName === d.customerName);
+            if (hasSplitIntent || sameCustomer) {
+              return { invoices: [a, b, c, d] };
+            }
           }
           if (sum > targetAmount + 1) break;
         }

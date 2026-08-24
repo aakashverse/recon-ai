@@ -10,8 +10,8 @@ export async function matchTier1(bankTxn) {
   const rawNarration = (bankTxn.narration || '').trim();
   const bankAmount = Number(bankTxn.amount);
 
-  // 1. Check flexible invoice number pattern in narration (e.g., INV-1001, INV-2024-101, INV/2026/01)
-  const invoiceMatch = rawNarration.match(/\b(INV[/-]?[A-Z0-9-]+|[A-Z0-9]+-INV[/-]?[A-Z0-9-]+)\b/i);
+  // 1. Check invoice number pattern in narration (e.g., INV-2024-1001, INV-1001, INV/2026/01)
+  const invoiceMatch = rawNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || rawNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
   let candidateInvoice = null;
 
   if (invoiceMatch) {

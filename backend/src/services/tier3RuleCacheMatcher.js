@@ -18,7 +18,7 @@ export async function matchTier3(bankTxn) {
   }
 
   // 2. Identify potential party/invoice tokens from narration
-  const invoiceMatch = rawNarration.match(/\b(INV[/-]?[A-Z0-9-]+|[A-Z0-9]+-INV[/-]?[A-Z0-9-]+)\b/i);
+  const invoiceMatch = rawNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || rawNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
   const explicitInvNum = invoiceMatch ? invoiceMatch[1].toUpperCase() : null;
 
   for (const rule of activeRules) {

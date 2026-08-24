@@ -31,7 +31,7 @@ export function initGemini(apiKey = currentApiKey) {
         },
       });
 
-      console.log('✅ [AI Engine] Google Gemini 1.5 Flash (Free Tier Capable) initialized successfully.');
+      console.log('[AI Engine] Google Gemini initialized successfully.');
       return true;
     } catch (err) {
       console.warn('[AI Engine] Failed to initialize Gemini API:', err.message);
