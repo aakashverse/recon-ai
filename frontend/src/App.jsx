@@ -10,6 +10,7 @@ import { AgenticOutboxModal } from './components/AgenticOutboxModal.jsx';
 import { RulesManagerModal } from './components/RulesManagerModal.jsx';
 import { AISettingsModal } from './components/AISettingsModal.jsx';
 import { DataImporterModal } from './components/DataImporterModal.jsx';
+import { FinanceControllerModal } from './components/FinanceControllerModal.jsx';
 import SAMPLE_BATCH_50 from './sample-batch-50.json';
 
 
@@ -36,6 +37,7 @@ export default function App() {
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
   const [isImporterOpen, setIsImporterOpen] = useState(false);
+  const [isControllerOpen, setIsControllerOpen] = useState(false);
 
   // 0ms In-Memory Instant Filter Pipeline
   const filteredTransactions = useMemo(() => {
@@ -117,6 +119,7 @@ export default function App() {
         onOpenRules={() => setIsRulesModalOpen(true)}
         onOpenAISettings={() => setIsAISettingsOpen(true)}
         onOpenImporter={() => setIsImporterOpen(true)}
+        onOpenController={() => setIsControllerOpen(true)}
         onReset={resetDashboard}
       />
 
@@ -179,6 +182,13 @@ export default function App() {
         <DataImporterModal
           onClose={() => setIsImporterOpen(false)}
           onFeedImported={() => refreshData()}
+        />
+      )}
+
+      {isControllerOpen && (
+        <FinanceControllerModal
+          isOpen={isControllerOpen}
+          onClose={() => setIsControllerOpen(false)}
         />
       )}
     </div>

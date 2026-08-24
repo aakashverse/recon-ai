@@ -64,6 +64,16 @@ export function Header({
             <span>Export Audit CSV</span>
           </button>
 
+          {/* AI Finance Controller & Cash Forecaster */}
+          <button
+            onClick={onOpenController}
+            className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-indigo-950/50 hover:bg-indigo-900/70 text-indigo-300 border border-indigo-500/40 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+            title="Open Settlement Q&A Agent and Forward 30/60/90-Day Cash Forecaster"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span>AI Controller & Forecaster</span>
+          </button>
+
           <button
             onClick={onOpenAISettings}
             className="px-3.5 py-2 text-xs font-medium rounded-lg bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
