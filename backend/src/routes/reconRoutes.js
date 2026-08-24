@@ -383,8 +383,10 @@ reconRouter.get('/stats', async (req, res) => {
       tier1Count,
       tier2Count,
       tier3Count,
+      tier4Count,
       invoices,
       recentEvents,
+      ragCacheHitsCount,
     ] = await Promise.all([
       BankLedger.countDocuments(),
       BankLedger.countDocuments({ reconciliationStatus: 'MATCHED' }),
@@ -393,8 +395,10 @@ reconRouter.get('/stats', async (req, res) => {
       BankLedger.countDocuments({ matchedTier: 'TIER_1' }),
       BankLedger.countDocuments({ matchedTier: 'TIER_2' }),
       BankLedger.countDocuments({ matchedTier: 'TIER_3' }),
+      BankLedger.countDocuments({ matchedTier: 'TIER_4' }),
       Invoice.find().lean(),
       ReconciliationEvent.find().sort({ createdAt: -1 }).limit(100).lean(),
+      BankLedger.countDocuments({ 'executionMetrics.ragCacheHit': true }),
     ]);
 
     const totalInflow = invoices
@@ -413,9 +417,10 @@ reconRouter.get('/stats', async (req, res) => {
 
     // Cost economics calculation
     // Naive 100% LLM cost = $0.005 per txn
-    // Hybrid Cost = Tier 3 only ($0.005 * tier3Count)
+    // Hybrid Cost = Tier 4 non-RAG calls only ($0.005 * (tier4Count - ragCacheHits))
+    const realTier4Calls = Math.max(0, tier4Count - ragCacheHitsCount);
     const naiveCostUsd = totalLedgerCount * 0.005;
-    const hybridCostUsd = tier3Count * 0.005;
+    const hybridCostUsd = realTier4Calls * 0.005;
     const savingsPercent = naiveCostUsd > 0 ? Number((((naiveCostUsd - hybridCostUsd) / naiveCostUsd) * 100).toFixed(1)) : 100;
 
     const matchRatePercent = totalLedgerCount > 0 ? Number(((matchedCount / totalLedgerCount) * 100).toFixed(1)) : 0;
@@ -432,8 +437,10 @@ reconRouter.get('/stats', async (req, res) => {
         tier1: tier1Count,
         tier2: tier2Count,
         tier3: tier3Count,
-        manual: matchedCount - (tier1Count + tier2Count + tier3Count),
+        tier4: tier4Count,
+        manual: Math.max(0, matchedCount - (tier1Count + tier2Count + tier3Count + tier4Count)),
       },
+      ragCacheHits: ragCacheHitsCount,
       latencyMetrics: {
         p50Ms: Number(p50.toFixed(1)),
         p95Ms: Number(p95.toFixed(1)),
@@ -444,7 +451,72 @@ reconRouter.get('/stats', async (req, res) => {
         hybridCostUsd: Number(hybridCostUsd.toFixed(3)),
         savingsPercent,
       },
+      hashChainLength: recentEvents.length,
     });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Export Comprehensive Reconciliation Evidence Report for Auditor (CSV)
+ */
+reconRouter.get('/export-audit', async (req, res) => {
+  try {
+    const events = await ReconciliationEvent.find()
+      .populate('invoiceId')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const headers = [
+      'Audit Event Hash',
+      'Previous Event Hash',
+      'Bank Txn ID',
+      'Transaction Date',
+      'Bank Amount (INR)',
+      'Status',
+      'Resolution Tier',
+      'Reconciled Invoice Number',
+      'Invoice Gross (INR)',
+      'Deductions Total (INR)',
+      'Circuit Breaker Equation',
+      'Confidence Score',
+      'RAG Cache Hit',
+      'Execution Latency (ms)',
+      'Raw Narration',
+    ];
+
+    const rows = events.map((e) => {
+      const invNum = e.invoiceNumber || e.invoiceId?.invoiceNumber || (e.splitInvoices?.length ? e.splitInvoices.map((s) => s.invoiceNumber).join(' + ') : 'N/A');
+      const gross = e.circuitBreakerResult?.invoiceGross || (e.invoiceId?.totalAmount || 'N/A');
+      const deductions = e.circuitBreakerResult?.deductionsTotal || 0;
+      const cbEq = `"${(e.circuitBreakerResult?.equation || '').replace(/"/g, '""')}"`;
+      const narration = `"${(e.rawNarration || '').replace(/"/g, '""')}"`;
+
+      return [
+        e.eventHash,
+        e.previousEventHash || 'GENESIS',
+        e.bankTxnId,
+        new Date(e.createdAt).toISOString(),
+        e.circuitBreakerResult?.bankReceived || 0,
+        e.resolvedTier === 'OUTBOX_EXCEPTION' ? 'EXCEPTION' : 'MATCHED',
+        e.resolvedTier,
+        invNum,
+        gross,
+        deductions,
+        cbEq,
+        e.confidence,
+        e.ragCacheHit ? 'YES' : 'NO',
+        e.totalDurationMs ? Number(e.totalDurationMs.toFixed(1)) : '<1',
+        narration,
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="razorpay-recon-audit-report-${Date.now()}.csv"`);
+    return res.status(200).send(csvContent);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

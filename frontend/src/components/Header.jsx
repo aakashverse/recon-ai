@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, Play, RefreshCw, Layers, Cpu, Sparkles, Bot, UploadCloud } from 'lucide-react';
+import { ShieldCheck, Play, RefreshCw, Layers, Cpu, Sparkles, Bot, UploadCloud, Download } from 'lucide-react';
 
 export function Header({
   isConnected,
@@ -13,6 +13,10 @@ export function Header({
   onReset,
 }) {
   const hasTransactions = totalTransactionsCount > 0;
+
+  const handleExportAudit = () => {
+    window.location.href = 'http://localhost:5000/api/reconciliation/export-audit';
+  };
 
   return (
     <header className="border-b border-razor-border bg-razor-card/80 backdrop-blur-md sticky top-0 z-30 px-6 py-4">
@@ -33,7 +37,7 @@ export function Header({
               </span>
             </div>
             <p className="text-xs text-slate-400">
-              Enterprise B2B AI Finance Controller • Zero-Trust Circuit Breaker
+              Enterprise B2B 4-Tier AI Finance Controller • Zero-Trust Circuit Breaker
             </p>
           </div>
         </div>
@@ -50,6 +54,16 @@ export function Header({
             <span>Import Real CSV / Data</span>
           </button>
 
+          {/* Export Auditor CSV */}
+          <button
+            onClick={handleExportAudit}
+            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+            title="Download Cryptographically Chained Auditor Evidence CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Export Audit CSV</span>
+          </button>
+
           <button
             onClick={onOpenAISettings}
             className="px-3.5 py-2 text-xs font-medium rounded-lg bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
@@ -61,16 +75,16 @@ export function Header({
 
           <button
             onClick={onOpenRules}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-all flex items-center gap-1.5 shadow-sm"
+            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
           >
             <Layers className="w-3.5 h-3.5 text-razor-purple" />
-            <span>Rule Cache (Tier 2)</span>
+            <span>Rule Cache (Tier 3)</span>
           </button>
 
           <button
             onClick={onReset}
             disabled={isProcessing}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition-all flex items-center gap-1.5 disabled:opacity-50"
+            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
             title="Clear current ledger & start fresh"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${isProcessing ? 'animate-spin' : ''}`} />

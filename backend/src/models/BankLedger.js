@@ -45,9 +45,16 @@ const bankLedgerSchema = new mongoose.Schema(
       ref: 'Invoice',
       default: null,
     },
+    splitInvoices: [
+      {
+        invoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
+        invoiceNumber: String,
+        amount: Number,
+      },
+    ],
     matchedTier: {
       type: String,
-      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'MANUAL', null],
+      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4', 'MANUAL', null],
       default: null,
     },
     confidenceScore: {
@@ -62,14 +69,18 @@ const bankLedgerSchema = new mongoose.Schema(
       tdsSection: { type: String, default: null },
       bankCharges: { type: Number, default: 0 },
       discount: { type: Number, default: 0 },
+      gstRounding: { type: Number, default: 0 },
       totalDeductions: { type: Number, default: 0 },
     },
     executionMetrics: {
       tier1DurationMs: { type: Number, default: 0 },
       tier2DurationMs: { type: Number, default: 0 },
       tier3DurationMs: { type: Number, default: 0 },
+      tier4DurationMs: { type: Number, default: 0 },
       circuitBreakerDurationMs: { type: Number, default: 0 },
       totalDurationMs: { type: Number, default: 0 },
+      ragCacheHit: { type: Boolean, default: false },
+      splitMatchCount: { type: Number, default: 0 },
     },
     discrepancyDetails: {
       expectedAmount: { type: Number, default: null },

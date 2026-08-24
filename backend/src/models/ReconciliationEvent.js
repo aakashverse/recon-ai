@@ -10,6 +10,7 @@ const dagNodeSchema = new mongoose.Schema(
         'STEP_TIER_1',
         'STEP_TIER_2',
         'STEP_TIER_3',
+        'STEP_TIER_4',
         'STEP_CIRCUIT_BREAKER',
         'STEP_COMMIT',
         'STEP_OUTBOX',
@@ -32,6 +33,11 @@ const dagNodeSchema = new mongoose.Schema(
 
 const reconciliationEventSchema = new mongoose.Schema(
   {
+    chainIndex: {
+      type: Number,
+      required: true,
+      index: true,
+    },
     bankTxnId: {
       type: String,
       required: true,
@@ -47,6 +53,13 @@ const reconciliationEventSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    splitInvoices: [
+      {
+        invoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
+        invoiceNumber: String,
+        amount: Number,
+      },
+    ],
     batchId: {
       type: String,
       default: null,
@@ -55,7 +68,7 @@ const reconciliationEventSchema = new mongoose.Schema(
     dagNodes: [dagNodeSchema],
     resolvedTier: {
       type: String,
-      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'OUTBOX_EXCEPTION', 'DUPLICATE_REJECTED'],
+      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4', 'OUTBOX_EXCEPTION', 'DUPLICATE_REJECTED'],
       required: true,
     },
     circuitBreakerResult: {
@@ -70,6 +83,10 @@ const reconciliationEventSchema = new mongoose.Schema(
       type: Number,
       default: 1.0,
     },
+    ragCacheHit: {
+      type: Boolean,
+      default: false,
+    },
     totalDurationMs: {
       type: Number,
       default: 0,
@@ -77,6 +94,16 @@ const reconciliationEventSchema = new mongoose.Schema(
     rawNarration: {
       type: String,
       default: '',
+    },
+    previousEventHash: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    eventHash: {
+      type: String,
+      required: true,
+      index: true,
     },
   },
   {

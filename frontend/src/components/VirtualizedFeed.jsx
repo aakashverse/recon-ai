@@ -112,22 +112,27 @@ export function VirtualizedFeed({
 
                   {/* Tier Badge */}
                   {tier === 'TIER_1' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-razor-blue/20 text-razor-blue font-mono font-medium">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-razor-blue/20 text-razor-blue font-mono font-medium border border-razor-blue/30">
                       Tier 1: &lt;2ms Exact
                     </span>
                   )}
                   {tier === 'TIER_2' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-mono font-medium">
-                      Tier 2: Rule Cache
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-mono font-medium border border-teal-500/30">
+                      Tier 2: Tolerance
                     </span>
                   )}
                   {tier === 'TIER_3' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-razor-purple/20 text-purple-300 font-mono font-medium">
-                      Tier 3: GenAI Pool
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-medium border border-emerald-500/30">
+                      Tier 3: Rule Cache
+                    </span>
+                  )}
+                  {tier === 'TIER_4' && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-razor-purple/20 text-purple-300 font-mono font-medium border border-razor-purple/30 flex items-center gap-1">
+                      {txn.executionMetrics?.ragCacheHit ? '⚡ Tier 4: RAG' : 'Tier 4: GenAI'}
                     </span>
                   )}
                   {tier === 'MANUAL' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono font-medium">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono font-medium">
                       Manual Approved
                     </span>
                   )}

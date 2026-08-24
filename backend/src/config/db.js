@@ -60,16 +60,16 @@ export async function connectDB() {
 export async function withTransaction(operationCallback) {
   if (supportsTransactions) {
     const session = await mongoose.startSession();
-    session.startTransaction();
     try {
-      const result = await operationCallback(session);
-      await session.commitTransaction();
+      let result;
+      await session.withTransaction(async () => {
+        result = await operationCallback(session);
+      });
       return result;
     } catch (err) {
-      await session.abortTransaction();
       throw err;
     } finally {
-      session.endSession();
+      await session.endSession();
     }
   } else {
     // Standalone fallback: execute directly without session wrapper

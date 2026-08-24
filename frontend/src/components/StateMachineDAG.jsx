@@ -78,11 +78,10 @@ const nodeTypes = { custom: CustomDAGNode };
 export function StateMachineDAG({ transaction, onClose }) {
   if (!transaction) return null;
 
-  const dagNodes = transaction.dagNodes || [];
   const metrics = transaction.executionMetrics || {};
   const cb = transaction.circuitBreaker || {};
 
-  // Build DAG Graph dynamically
+  // Build DAG Graph dynamically with 4 Tiers
   const { nodes, edges } = useMemo(() => {
     const isMatched = transaction.reconciliationStatus === 'MATCHED';
     const tier = transaction.matchedTier;
@@ -91,62 +90,75 @@ export function StateMachineDAG({ transaction, onClose }) {
       {
         id: '1',
         type: 'custom',
-        position: { x: 250, y: 20 },
+        position: { x: 300, y: 15 },
         data: {
           title: '1. Ingest & Idempotency Guard',
           subtitle: `SHA-256 Hash: ${transaction.bankTxnId}`,
           status: 'SUCCESS',
-          durationMs: 0.5,
+          durationMs: 0.4,
           tier: 'Guard',
-          details: `Payload: ₹${transaction.amount} | UTR: ${transaction.utrNumber || 'N/A'}`,
+          details: `Payload: ₹${Number(transaction.amount || 0).toLocaleString('en-IN')} | UTR: ${transaction.utrNumber || 'N/A'}`,
         },
       },
       {
         id: '2',
         type: 'custom',
-        position: { x: 50, y: 170 },
+        position: { x: 50, y: 150 },
         data: {
-          title: '2. Tier 1: Deterministic Math',
-          subtitle: 'Exact UTR & Hash Lookup (<10ms)',
+          title: '2. Tier 1: Deterministic Exact',
+          subtitle: 'Exact Gross & UTR Match (<2ms)',
           status: tier === 'TIER_1' ? 'SUCCESS' : 'FAILED',
-          durationMs: metrics.tier1DurationMs || 1.8,
+          durationMs: metrics.tier1DurationMs || 1.2,
           tier: 'Tier 1',
-          details: tier === 'TIER_1' ? 'Exact gross invoice match found' : 'No exact match, falling back to Tier 2',
+          details: tier === 'TIER_1' ? 'Exact gross invoice match found ($0 deductions)' : 'Has deductions/variance, falling back to Tier 2',
         },
       },
       {
         id: '3',
         type: 'custom',
-        position: { x: 450, y: 170 },
+        position: { x: 320, y: 150 },
         data: {
-          title: '3. Tier 2: Self-Healing Cache',
-          subtitle: 'Historical Vendor Pattern Match (<20ms)',
+          title: '3. Tier 2: Tolerance & Split',
+          subtitle: 'Statutory TDS, Bank Fees, Split-Match (<5ms)',
           status: tier === 'TIER_2' ? 'SUCCESS' : tier === 'TIER_1' ? 'BYPASSED' : 'FAILED',
-          durationMs: metrics.tier2DurationMs || (tier === 'TIER_1' ? 0 : 4.5),
+          durationMs: metrics.tier2DurationMs || (tier === 'TIER_1' ? 0 : 3.5),
           tier: 'Tier 2',
-          details: tier === 'TIER_2' ? `Matched vendor deduction rule` : tier === 'TIER_1' ? 'Bypassed (Tier 1 matched)' : 'No rule found, falling back to GenAI',
+          details: tier === 'TIER_2' ? 'Explainable statutory TDS / split match verified' : tier === 'TIER_1' ? 'Bypassed (Resolved in Tier 1)' : 'Delta unexplained, checking Rule Cache',
         },
       },
       {
         id: '4',
         type: 'custom',
-        position: { x: 250, y: 330 },
+        position: { x: 590, y: 150 },
         data: {
-          title: '4. Tier 3: GenAI & Vision Pool',
-          subtitle: 'Gemini 1.5 Structured Parser (p-limit 5)',
-          status: tier === 'TIER_3' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'BYPASSED' : 'DISCREPANCY_DETECTED',
-          durationMs: metrics.tier3DurationMs || (tier === 'TIER_3' ? 6.2 : 0),
+          title: '4. Tier 3: Rule Cache',
+          subtitle: 'Historical Vendor Pattern Match (<10ms)',
+          status: tier === 'TIER_3' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'BYPASSED' : 'FAILED',
+          durationMs: metrics.tier3DurationMs || (tier === 'TIER_1' || tier === 'TIER_2' ? 0 : 4.5),
           tier: 'Tier 3',
-          details: tier === 'TIER_3' ? 'Tokens extracted: TDS & Invoice mapped' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'Bypassed (Resolved in Tier 1/2)' : 'Unstructured narration flagged',
+          details: tier === 'TIER_3' ? 'Matched learned vendor deduction rule' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'Bypassed' : 'No rule found, falling back to GenAI',
         },
       },
       {
         id: '5',
         type: 'custom',
-        position: { x: 250, y: 490 },
+        position: { x: 320, y: 310 },
         data: {
-          title: '5. The Circuit Breaker (Node.js)',
-          subtitle: 'Zero-Trust Arithmetic Validation',
+          title: '5. Tier 4: GenAI & RAG Pool',
+          subtitle: 'Gemini 1.5 Flash + RAG Fuzzy Cache (p-limit 5)',
+          status: tier === 'TIER_4' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2' || tier === 'TIER_3') ? 'BYPASSED' : 'DISCREPANCY_DETECTED',
+          durationMs: metrics.tier4DurationMs || (tier === 'TIER_4' ? 18.5 : 0),
+          tier: 'Tier 4',
+          details: tier === 'TIER_4' ? (metrics.ragCacheHit ? '⚡ RAG Cache Hit: Reused verified pattern ($0 cost)' : 'Live Gemini AI structured parsing & reasoning') : (tier === 'TIER_1' || tier === 'TIER_2' || tier === 'TIER_3') ? 'Bypassed (Resolved deterministically)' : 'Unstructured narration flagged',
+        },
+      },
+      {
+        id: '6',
+        type: 'custom',
+        position: { x: 320, y: 460 },
+        data: {
+          title: '6. The Circuit Breaker (Node.js)',
+          subtitle: 'Zero-Trust Arithmetic Verification',
           status: isMatched ? 'SUCCESS' : 'DISCREPANCY_DETECTED',
           durationMs: metrics.circuitBreakerDurationMs || 0.4,
           tier: 'Circuit Breaker',
@@ -154,16 +166,16 @@ export function StateMachineDAG({ transaction, onClose }) {
         },
       },
       {
-        id: '6',
+        id: '7',
         type: 'custom',
-        position: { x: 250, y: 640 },
+        position: { x: 320, y: 610 },
         data: {
-          title: isMatched ? '6. ACID Transaction Commit' : '6. Agentic Outbox Dispatched',
+          title: isMatched ? '7. ACID Multi-Doc Commit (PAID)' : '7. Agentic Outbox Queue',
           subtitle: isMatched ? 'Status: PAID • Reconciled' : 'Status: FLAGGED_FOR_HUMAN',
           status: isMatched ? 'SUCCESS' : 'DISCREPANCY_DETECTED',
           durationMs: 2.1,
           tier: isMatched ? 'Commit' : 'Outbox',
-          details: isMatched ? 'Invoice and Bank Ledger state committed atomically.' : 'Dispatched to WhatsApp / Email Discrepancy Action Queue.',
+          details: isMatched ? 'General ledger committed with cryptographic hash link.' : 'Dispatched to WhatsApp / Email Discrepancy Action Queue.',
         },
       },
     ];
@@ -171,11 +183,13 @@ export function StateMachineDAG({ transaction, onClose }) {
     const graphEdges = [
       { id: 'e1-2', source: '1', target: '2', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
       { id: 'e1-3', source: '1', target: '3', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e2-5', source: '2', target: '5', type: 'smoothstep', animated: tier === 'TIER_1', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e3-5', source: '3', target: '5', type: 'smoothstep', animated: tier === 'TIER_2', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e3-4', source: '3', target: '4', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e4-5', source: '4', target: '5', type: 'smoothstep', animated: tier === 'TIER_3', markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e5-6', source: '5', target: '6', type: 'smoothstep', animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e1-4', source: '1', target: '4', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e2-6', source: '2', target: '6', type: 'smoothstep', animated: tier === 'TIER_1', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e3-6', source: '3', target: '6', type: 'smoothstep', animated: tier === 'TIER_2', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e4-6', source: '4', target: '6', type: 'smoothstep', animated: tier === 'TIER_3', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e4-5', source: '4', target: '5', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e5-6', source: '5', target: '6', type: 'smoothstep', animated: tier === 'TIER_4', markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e6-7', source: '6', target: '7', type: 'smoothstep', animated: true, markerEnd: { type: MarkerType.ArrowClosed } },
     ];
 
     return { nodes: graphNodes, edges: graphEdges };
@@ -183,7 +197,7 @@ export function StateMachineDAG({ transaction, onClose }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-razor-card border border-razor-border rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-fade-in">
+      <div className="bg-razor-card border border-razor-border rounded-2xl w-full max-w-5xl h-[88vh] flex flex-col shadow-2xl overflow-hidden animate-fade-in">
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-razor-border bg-slate-900/90 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -193,11 +207,16 @@ export function StateMachineDAG({ transaction, onClose }) {
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-base font-bold text-white">
-                  DAG State Machine Trace: <span className="font-mono text-razor-blue">{transaction.bankTxnId}</span>
+                  4-Tier DAG State Machine Trace: <span className="font-mono text-razor-blue">{transaction.bankTxnId}</span>
                 </h3>
                 <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
                   {transaction.executionMetrics?.totalDurationMs ? `${transaction.executionMetrics.totalDurationMs}ms Total` : '<20ms'}
                 </span>
+                {transaction.executionMetrics?.ragCacheHit && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-mono border border-purple-500/40">
+                    ⚡ RAG Cache Hit
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 truncate max-w-xl">
                 Narration: <span className="text-slate-200 font-mono">{transaction.narration}</span>
@@ -207,7 +226,7 @@ export function StateMachineDAG({ transaction, onClose }) {
 
           <button
             onClick={onClose}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
