@@ -72,6 +72,10 @@ const reconciliationEventSchema = new mongoose.Schema(
       enum: ['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4', 'OUTBOX_EXCEPTION', 'DUPLICATE_REJECTED'],
       required: true,
     },
+    bankAmount: {
+      type: Number,
+      required: true,
+    },
     circuitBreakerResult: {
       passed: { type: Boolean, default: false },
       equation: { type: String, default: '' },

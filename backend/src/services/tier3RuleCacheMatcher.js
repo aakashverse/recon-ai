@@ -1,18 +1,19 @@
-import { RuleCache } from '../models/RuleCache.js';
+﻿import { RuleCache } from '../models/RuleCache.js';
 import { Invoice } from '../models/Invoice.js';
 
 /**
  * Tier 3: Self-Healing Rule Cache (<10ms)
  * - Evaluates historical vendor rules, known deduction patterns (Section 194C, 194J, etc.)
  * - Applies deterministic deduction arithmetic before invoking GenAI
+ * - Supports in-memory context indexing for sub-millisecond execution with zero DB round-trips
  */
-export async function matchTier3(bankTxn) {
+export async function matchTier3(bankTxn, context = {}) {
   const startTime = performance.now();
   const rawNarration = (bankTxn.narration || '').trim().toUpperCase();
   const bankAmount = Number(bankTxn.amount);
 
   // 1. Fetch active rules
-  const activeRules = await RuleCache.find({ isActive: true }).lean();
+  const activeRules = context.activeRules || (await RuleCache.find({ isActive: true }).lean());
   if (!activeRules.length) {
     return { matched: false, tier: 'TIER_3', durationMs: performance.now() - startTime };
   }
@@ -49,57 +50,57 @@ export async function matchTier3(bankTxn) {
 
     if (matchesRule) {
       // Find candidate unpaid invoices for this vendor / invoice number
-      const invoiceQuery = { status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } };
-      if (explicitInvNum) {
-        invoiceQuery.invoiceNumber = { $regex: new RegExp(`^${explicitInvNum}$`, 'i') };
+      let candidateInvoices = [];
+      if (context.allInvoices) {
+        candidateInvoices = context.allInvoices.filter((inv) => {
+          if (inv.status === 'PAID') return false;
+          if (explicitInvNum) {
+            return inv.invoiceNumber.toUpperCase() === explicitInvNum;
+          }
+          const vendorFilters = [rule.partyIdentifier, ...(rule.matchCriteria?.narrationKeywords || [])].filter(Boolean);
+          const cName = (inv.customerName || '').toUpperCase();
+          return vendorFilters.some((kw) => cName.includes(kw.toUpperCase()));
+        });
       } else {
-        const vendorFilters = [rule.partyIdentifier, ...(rule.matchCriteria?.narrationKeywords || [])].filter(Boolean);
-        invoiceQuery.$or = vendorFilters.map((kw) => ({
-          customerName: { $regex: new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
-        }));
+        const invoiceQuery = { status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } };
+        if (explicitInvNum) {
+          invoiceQuery.invoiceNumber = { $regex: new RegExp(`^${explicitInvNum}$`, 'i') };
+        } else {
+          const vendorFilters = [rule.partyIdentifier, ...(rule.matchCriteria?.narrationKeywords || [])].filter(Boolean);
+          invoiceQuery.$or = vendorFilters.map((kw) => ({
+            customerName: { $regex: new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+          }));
+        }
+        candidateInvoices = await Invoice.find(invoiceQuery).lean();
       }
-
-      const candidateInvoices = await Invoice.find(invoiceQuery).limit(5).lean();
 
       for (const invoice of candidateInvoices) {
         const gross = Number(invoice.totalAmount);
-        const tdsRate = Number(rule.adjustmentLogic?.tdsRate || 0);
-        const handlingFeeRate = Number(rule.adjustmentLogic?.handlingFeeRate || 0);
-        const fixedDeduction = Number(rule.adjustmentLogic?.fixedDeduction || 0);
+        const tdsRate = rule.action?.defaultTdsRate || 0;
+        const tdsSection = rule.action?.defaultTdsSection || '194C';
+        const expectedTds = (gross * tdsRate) / 100;
+        const netExpected = gross - expectedTds;
+        const diff = Math.abs(netExpected - bankAmount);
 
-        const tdsAmount = tdsRate > 0 ? (gross * tdsRate) / 100 : 0;
-        const handlingFee = handlingFeeRate > 0 ? (gross * handlingFeeRate) / 100 : 0;
-        const totalDeductions = tdsAmount + handlingFee + fixedDeduction;
-        const calculatedNet = gross - totalDeductions;
-
-        // Check if arithmetic matches bank received amount (within 0.05 float tolerance)
-        if (Math.abs(calculatedNet - bankAmount) < 0.05) {
-          // Increment rule usage asynchronously
-          RuleCache.updateOne(
-            { _id: rule._id },
-            {
-              $inc: { usageCount: 1 },
-              $set: { lastTriggeredAt: new Date() },
-            }
-          ).catch((e) => console.warn('[Tier 3] Rule usage count update error:', e.message));
-
+        if (diff <= 1.05) {
           const durationMs = performance.now() - startTime;
           return {
             matched: true,
             tier: 'TIER_3',
             invoice,
-            ruleApplied: rule,
-            confidence: rule.confidence ? Math.min(rule.confidence, 0.93) : 0.91,
+            ruleApplied: rule.ruleName,
+            confidence: 0.93,
             deductions: {
-              tdsAmount: Number(tdsAmount.toFixed(2)),
+              tdsAmount: Number(expectedTds.toFixed(2)),
               tdsRate,
-              tdsSection: rule.adjustmentLogic?.tdsSection || '194C',
-              bankCharges: Number(handlingFee.toFixed(2)),
-              discount: Number(fixedDeduction.toFixed(2)),
-              totalDeductions: Number(totalDeductions.toFixed(2)),
+              tdsSection,
+              bankCharges: 0,
+              discount: 0,
+              gstRounding: Number(diff.toFixed(2)),
+              totalDeductions: Number(expectedTds.toFixed(2)),
             },
             durationMs,
-            matchType: `RULE_PATTERN_${rule.partyIdentifier}`,
+            matchType: `HISTORICAL_RULE_CACHE_${rule.ruleName}`,
           };
         }
       }
@@ -111,8 +112,6 @@ export async function matchTier3(bankTxn) {
     matched: false,
     tier: 'TIER_3',
     durationMs,
+    reason: 'No historical pattern rule satisfied. Passing to Tier 4 GenAI.',
   };
 }
-
-// Backwards compatibility alias
-export const matchTier2 = matchTier3;

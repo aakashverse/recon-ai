@@ -8,8 +8,10 @@ export function validateCircuitBreaker(invoice, bankAmount, deductions = {}, spl
   const startTime = performance.now();
 
   let invoiceGross = Number(invoice?.totalAmount || 0);
-  if (splitInvoices && splitInvoices.length >= 2) {
-    invoiceGross = splitInvoices.reduce((sum, i) => sum + Number(i.amount || 0), 0);
+  if (Array.isArray(invoice) && invoice.length >= 2) {
+    invoiceGross = invoice.reduce((sum, i) => sum + Number(i.amount || i.totalAmount || 0), 0);
+  } else if (splitInvoices && splitInvoices.length >= 2) {
+    invoiceGross = splitInvoices.reduce((sum, i) => sum + Number(i.amount || i.totalAmount || 0), 0);
   }
 
   const tdsAmount = Number(deductions.tdsAmount || 0);

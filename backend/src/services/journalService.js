@@ -1,4 +1,4 @@
-﻿import { JournalEntry } from '../models/JournalEntry.js';
+import { JournalEntry } from '../models/JournalEntry.js';
 import { Invoice } from '../models/Invoice.js';
 import { BankLedger } from '../models/BankLedger.js';
 
@@ -127,10 +127,8 @@ export class JournalService {
       BankLedger.find().lean(),
     ]);
 
-    // Calculate Billed Revenue & Total Open AR
+    // Calculate Billed Revenue & Total Open AR from double-entry GL
     const totalBilledRevenue = allInvoices.reduce((s, i) => s + (Number(i.totalAmount) || 0), 0);
-    const paidInvoicesTotal = allInvoices.filter((i) => i.status === 'PAID').reduce((s, i) => s + (Number(i.totalAmount) || 0), 0);
-    const openArBalance = totalBilledRevenue - paidInvoicesTotal;
 
     // Aggregate Debits & Credits across all journal lines
     let bankCashInflow = 0;
@@ -152,6 +150,8 @@ export class JournalService {
         if (c.accountCode.startsWith('1200')) arSettledCredits += c.amount;
       }
     }
+
+    const openArBalance = Math.max(0, totalBilledRevenue - arSettledCredits);
 
     // Trial Balance Accounts Table
     const accounts = [
@@ -229,7 +229,7 @@ export class JournalService {
       totalDebits,
       totalCredits,
       isBalanced,
-      recentJournalEntries: allEntries.slice(0, 15),
+      recentJournalEntries: allEntries,
       continuousCloseMetrics: {
         totalJournalEntriesCount: allEntries.length,
         continuousCloseHealthPercent: continuousCloseHealth,

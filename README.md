@@ -1,4 +1,4 @@
-﻿# Razorpay Recon AI — Enterprise-Grade B2B AI Finance Controller
+# Razorpay Recon AI — Enterprise-Grade B2B AI Finance Controller
 > **Razorpay Buildathon Track-04 | AI Finance Controller ("Run the books and the cash position")**
 > *Architected after Rillet's AI-Native ERP: Automated Double-Entry Auto-Journaling, Zero-Day Continuous Close, Live Trial Balance, Indian Statutory Tax-Line Matching, SHA-256 Idempotency, ACID Multi-Doc Transactions, Zero-Trust Circuit Breakers, Cryptographic Merkle Hash Chains, and 94–100% Cost Reduction.*
 
@@ -77,6 +77,9 @@ flowchart TD
   - **Section 206AB** (Non-Filer Higher Penalty Rate @ 20%)
   - **PSU GST-TDS Section 51** (2% on Taxable Value)
   - **CBDT Circular 23/2017** (TDS computed strictly on base value excluding GST)
+
+> [!NOTE]
+> **Tax Engine Disclaimer**: These are representative rates used for synthetic test data and matching logic, not a certified or exhaustive statutory tax engine — real TDS rates carry statutory thresholds, exemptions, and lower-deduction certificates (Section 197) that change with Finance Act amendments.
 
 ### 3. Settlement Q&A Agent (`/api/reconciliation/assistant-chat`)
 - Natural-language financial assistant grounded strictly in verified MongoDB ledger data.

@@ -1,11 +1,11 @@
-import { Invoice } from '../models/Invoice.js';
+﻿import { Invoice } from '../models/Invoice.js';
 
 /**
  * Tier 1: Deterministic Exact Matcher (<2ms)
  * - Strictly matches 100% exact gross amount (0 deductions) or pre-mapped exact UTR
- * - If there are any deductions (TDS, fees, discounts) or variances, Tier 1 yields to Tier 2/3!
+ * - Supports in-memory context indexing for sub-millisecond execution with zero DB round-trips
  */
-export async function matchTier1(bankTxn) {
+export async function matchTier1(bankTxn, context = {}) {
   const startTime = performance.now();
   const rawNarration = (bankTxn.narration || '').trim();
   const bankAmount = Number(bankTxn.amount);
@@ -16,19 +16,25 @@ export async function matchTier1(bankTxn) {
 
   if (invoiceMatch) {
     const invNumber = invoiceMatch[1].toUpperCase();
-    candidateInvoice = await Invoice.findOne({
-      invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
-      status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-    }).lean();
+    if (context.invoiceByNumber) {
+      candidateInvoice = context.invoiceByNumber.get(invNumber) || null;
+      if (candidateInvoice && candidateInvoice.status === 'PAID') candidateInvoice = null;
+    } else {
+      candidateInvoice = await Invoice.findOne({
+        invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
+        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+      }).lean();
+    }
   }
 
   // 2. Lookup by Vendor Name match in narration + Exact Gross Amount
   if (!candidateInvoice && rawNarration) {
-    const allUnpaid = await Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean();
+    const allUnpaid = context.allInvoices || (await Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean());
+    const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     for (const inv of allUnpaid) {
+      if (inv.status === 'PAID') continue;
       const cleanVendor = (inv.customerName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
-      
       if (cleanVendor && cleanVendor.length > 3 && (cleanNarration.includes(cleanVendor) || cleanVendor.includes(cleanNarration))) {
         if (Math.abs(inv.totalAmount - bankAmount) < 0.01) {
           candidateInvoice = inv;
@@ -62,15 +68,19 @@ export async function matchTier1(bankTxn) {
     }
   }
 
-  // 5. Check exact UTR match if previously mapped or referenced
+  // 4. Check exact UTR match if previously mapped
   if (bankTxn.utrNumber) {
-    const utrInvoice = await Invoice.findOne({
-      $or: [
-        { 'metadata.expectedUtr': bankTxn.utrNumber },
-        { invoiceNumber: bankTxn.utrNumber },
-      ],
-      status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-    }).lean();
+    let utrInvoice = null;
+    if (context.allInvoices) {
+      utrInvoice = context.allInvoices.find(
+        (inv) => inv.status !== 'PAID' && (inv.metadata?.expectedUtr === bankTxn.utrNumber || inv.invoiceNumber === bankTxn.utrNumber)
+      );
+    } else {
+      utrInvoice = await Invoice.findOne({
+        $or: [{ 'metadata.expectedUtr': bankTxn.utrNumber }, { invoiceNumber: bankTxn.utrNumber }],
+        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+      }).lean();
+    }
 
     if (utrInvoice && Math.abs(utrInvoice.totalAmount - bankAmount) < 0.01) {
       const durationMs = performance.now() - startTime;
@@ -98,8 +108,10 @@ export async function matchTier1(bankTxn) {
     matched: false,
     tier: 'TIER_1',
     invoice: candidateInvoice || null,
-    confidence: candidateInvoice ? 0.5 : 0.0,
+    confidence: candidateInvoice ? 0.4 : 0,
     durationMs,
-    reason: candidateInvoice ? 'Amount differs from gross (has deductions/variance), delegating to Tier 2/3' : 'No exact invoice match found in Tier 1',
+    reason: candidateInvoice
+      ? `Gross amount mismatch: Invoice ₹${candidateInvoice.totalAmount} vs Bank ₹${bankAmount}. Passing to Tier 2.`
+      : 'No exact invoice/gross match found. Passing to Tier 2.',
   };
 }

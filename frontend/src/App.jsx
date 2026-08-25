@@ -48,12 +48,13 @@ export default function App() {
       const conf = t.confidenceScore !== undefined ? t.confidenceScore : 1.0;
       if (conf < minConfidence) return false;
 
-      // 2. Status filter
+      // 2. Status & Tier filter
       if (statusFilter === 'MATCHED' && t.reconciliationStatus !== 'MATCHED') return false;
       if (statusFilter === 'EXCEPTION' && t.reconciliationStatus !== 'EXCEPTION') return false;
-      if (statusFilter === 'TIER_1' && t.matchedTier !== 'TIER_1') return false;
-      if (statusFilter === 'TIER_2' && t.matchedTier !== 'TIER_2') return false;
-      if (statusFilter === 'TIER_3' && t.matchedTier !== 'TIER_3') return false;
+      if (statusFilter === 'TIER_1' && (t.matchedTier !== 'TIER_1' || t.reconciliationStatus !== 'MATCHED')) return false;
+      if (statusFilter === 'TIER_2' && (t.matchedTier !== 'TIER_2' || t.reconciliationStatus !== 'MATCHED')) return false;
+      if (statusFilter === 'TIER_3' && (t.matchedTier !== 'TIER_3' || t.reconciliationStatus !== 'MATCHED')) return false;
+      if (statusFilter === 'TIER_4' && (t.matchedTier !== 'TIER_4' || t.reconciliationStatus !== 'MATCHED')) return false;
 
       // 3. Search query
       if (searchQuery.trim()) {
@@ -63,13 +64,15 @@ export default function App() {
         const txnId = (t.bankTxnId || '').toLowerCase();
         const invNum = (t.reconciledInvoiceId?.invoiceNumber || '').toLowerCase();
         const vendor = (t.reconciledInvoiceId?.customerName || '').toLowerCase();
+        const splitInvs = (t.splitInvoices || []).map((s) => s.invoiceNumber || '').join(' ').toLowerCase();
 
         return (
           narration.includes(q) ||
           utr.includes(q) ||
           txnId.includes(q) ||
           invNum.includes(q) ||
-          vendor.includes(q)
+          vendor.includes(q) ||
+          splitInvs.includes(q)
         );
       }
 
@@ -89,26 +92,6 @@ export default function App() {
     }
   };
 
-  const handleSimulateLiveStream = async () => {
-    if (!transactions.length) {
-      setIsImporterOpen(true);
-      return;
-    }
-    // Stream transactions one by one with small intervals
-    for (const txn of transactions.slice(0, 15)) {
-      try {
-        await fetch('/api/reconciliation/process-single', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(txn),
-        });
-        await new Promise((r) => setTimeout(r, 400));
-      } catch (e) {
-        console.warn('Stream step error:', e);
-      }
-    }
-  };
-
   return (
     <div className="min-h-screen bg-razor-dark flex flex-col">
       {/* Header */}
@@ -117,7 +100,6 @@ export default function App() {
         isProcessing={isProcessing}
         totalTransactionsCount={transactions.length}
         onTriggerBatch={handleRun50Batch}
-        onSimulateLive={handleSimulateLiveStream}
         onOpenLedger={() => setIsLedgerOpen(true)}
         onOpenRules={() => setIsRulesModalOpen(true)}
         onOpenAISettings={() => setIsAISettingsOpen(true)}

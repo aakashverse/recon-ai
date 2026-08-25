@@ -29,7 +29,7 @@ export function computeNarrationFingerprint(narration) {
     .replace(/\b[A-Z]{4}\d{6,16}\b/g, '<UTR>')
     .replace(/\bUPI\/\d{12}\b/g, '<UPI>')
     // Strip invoice numbers with digits
-    .replace(/\bINV[-_]?\d+(?:[-_]\d+)?\b/g, '<INV_NUM>')
+    .replace(/\b[A-Z]{2,5}[-_]?\d+(?:[-_]\d+)?\b/g, '<INV_NUM>')
     // Strip raw numeric amounts
     .replace(/\b\d+(?:\.\d{1,2})?\b/g, '<NUM>')
     // Normalize delimiters
@@ -58,7 +58,8 @@ export function checkRAGCache(narration) {
       highestSimilarity = similarity;
       bestMatch = {
         ...entry.resolution,
-        similarityScore: Number(highestSimilarity.toFixed(3)),
+        ragCacheHit: true,
+        similarityScore: Number(similarity.toFixed(3)),
       };
     }
   }
@@ -67,13 +68,12 @@ export function checkRAGCache(narration) {
 }
 
 /**
- * Stores a successful resolution into the RAG Cache
+ * Stores a verified resolution in the RAG Cache
  */
 export function storeRAGCache(narration, resolution) {
   const fingerprint = computeNarrationFingerprint(narration);
-  if (!fingerprint) return;
+  if (!fingerprint || !resolution) return;
 
-  // Prevent duplicate fingerprints
   const existingIdx = ragResolutionCache.findIndex((e) => e.fingerprint === fingerprint);
   if (existingIdx >= 0) {
     ragResolutionCache[existingIdx].resolution = resolution;
@@ -84,7 +84,6 @@ export function storeRAGCache(narration, resolution) {
       resolution,
       createdAt: new Date(),
     });
-    // Keep max 200 items in memory
     if (ragResolutionCache.length > 200) {
       ragResolutionCache.shift();
     }
@@ -92,9 +91,9 @@ export function storeRAGCache(narration, resolution) {
 }
 
 /**
- * Intelligent local heuristic parser for offline/resilient/mock execution
+ * Generalized local heuristic entity extractor (zero hardcoded vendor names)
  */
-function localIntelligentExtraction(narration, bankAmount) {
+function localIntelligentExtraction(narration, bankAmount, context = {}) {
   const text = (narration || '').toUpperCase();
   const candidateInvoiceNumbers = [];
   let vendorName = null;
@@ -103,68 +102,59 @@ function localIntelligentExtraction(narration, bankAmount) {
   let claimedBankCharges = 0;
   let claimedDiscount = 0;
 
-  // Typo normalization for OCR (e.g. 2O24 -> 2024, IOOI -> 1001)
-  const normalizedText = text
-    .replace(/\b([A-Z]{3,4})[-_](2O2[0-9])[-_]([A-Z0-9]+)\b/gi, (match, p1, p2, p3) => {
+  // Generalized OCR typo normalization: fixes '1NV' -> 'INV', letter 'O' -> '0' and 'I' -> '1' inside numeric parts
+  let normalizedText = text
+    .replace(/\b[1I]NV[-_ /]*/gi, 'INV-')
+    .replace(/\b([A-Z]{2,5})[-_ ]*([0-9O]{4})[-_ ]*([0-9OIA-Z]+)\b/gi, (match, p1, p2, p3) => {
       const fixedYear = p2.replace(/O/g, '0');
       const fixedNum = p3.replace(/O/g, '0').replace(/I/g, '1');
       return `${p1}-${fixedYear}-${fixedNum}`;
     })
-    .replace(/IOOI/g, '1001')
-    .replace(/IOO2/g, '1002')
-    .replace(/IOO3/g, '1003')
-    .replace(/IOO4/g, '1004')
-    .replace(/IOO5/g, '1005');
+    .replace(/1O-PERCENT|1O PERCENT|1O%|IO-PERCENT|IO PERCENT|IO%/gi, '10%');
 
-  // Extract Invoice pattern: e.g. INV-2024-001, INVOICE-99238, INV-1004
-  const invMatches = normalizedText.match(/(?:INV|INVOICE)[-_]?[A-Z0-9]+(?:-[A-Z0-9]+)*/gi);
+  // Extract Invoice pattern: e.g. INV-2024-1004, BILL-99238, INV-1004, TAX-2026-01
+  const invMatches = normalizedText.match(/\b(?:INV|INVOICE|BILL|TAX|RCPT)[-_/]?[0-9A-Z]{2,6}(?:[-_/][0-9A-Z]{1,6})?\b/gi);
   if (invMatches) {
     for (const m of invMatches) {
-      let formatted = m.replace(/INVOICE/i, 'INV').replace(/[-_]+/g, '-').toUpperCase();
-      if (!formatted.includes('-')) {
-        formatted = formatted.replace(/INV/i, 'INV-');
-      }
+      let formatted = m.replace(/INVOICE/i, 'INV').replace(/[/_]+/g, '-').toUpperCase();
       candidateInvoiceNumbers.push(formatted);
     }
   }
 
-  // Extract Vendor Tokens
-  const vendorKeywords = [
-    'INFOSYS', 'TCS', 'WIPRO', 'SWIGGY', 'ZOMATO', 'AMAZON', 'FLIPKART',
-    'RELIANCE', 'TATA', 'ACME', 'PAYTM', 'RAZORPAY', 'HDFC', 'ICICI',
-    'HEXAWAVE', 'DELTA', 'URBANSTALLION', 'OMNISECURE', 'PIXELCRAFT', 'ZENITH',
-    'QUICKKART', 'AERODYNAMICS', 'GREENLEAF', 'SUMMIT', 'TITAN', 'TECHCORP',
-    'GLOBAL', 'CLOUDHST', 'SECURENET', 'METRO'
-  ];
-  for (const v of vendorKeywords) {
-    if (text.includes(v)) {
-      vendorName = v;
+  // Dynamic Vendor Identification from open database invoices
+  const openInvoices = context.allInvoices || [];
+  for (const inv of openInvoices) {
+    if (!inv.customerName) continue;
+    const cleanCustomer = inv.customerName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const cleanText = text.replace(/[^A-Z0-9]/g, '');
+    if (cleanCustomer.length >= 4 && cleanText.includes(cleanCustomer)) {
+      vendorName = inv.customerName;
       break;
     }
   }
 
-  // Extract TDS Rate patterns: e.g. "TDS 2%", "10% TDS", "TDS-194C-2PCT", "LESS-TDS-10", "206AB"
-  if (text.includes('206AB') || text.includes('20%') || text.includes('20PCT') || text.includes('20 PERCENT')) {
+  // Extract Statutory TDS Rate patterns dynamically
+  if (normalizedText.includes('206AB') || normalizedText.includes('20%') || normalizedText.includes('20PCT') || normalizedText.includes('20 PERCENT')) {
     claimedTdsRate = 20;
     claimedTdsSection = '206AB';
-  } else if (text.includes('194Q') || text.includes('0.1%') || text.includes('0.1PCT')) {
+  } else if (normalizedText.includes('194Q') || normalizedText.includes('0.1%') || normalizedText.includes('0.1PCT')) {
     claimedTdsRate = 0.1;
     claimedTdsSection = '194Q';
-  } else if (text.includes('194J') || text.includes('10%') || text.includes('10PCT') || text.includes('10 PERCENT') || text.includes('194I') || text.includes('TDS-IO-PERCENT') || text.includes('IO-PERCENT')) {
+  } else if (normalizedText.includes('194J') || normalizedText.includes('10%') || normalizedText.includes('10PCT') || normalizedText.includes('10 PERCENT') || normalizedText.includes('194I')) {
     claimedTdsRate = 10;
     claimedTdsSection = '194J';
-  } else if (text.includes('194C') || text.includes('2%') || text.includes('2PCT') || text.includes('2 PERCENT')) {
+  } else if (normalizedText.includes('194C') || normalizedText.includes('2%') || normalizedText.includes('2PCT') || normalizedText.includes('2 PERCENT')) {
     claimedTdsRate = 2;
     claimedTdsSection = '194C';
-  } else if (text.includes('1%') || text.includes('1PCT') || text.includes('1 PERCENT')) {
+  } else if (normalizedText.includes('1%') || normalizedText.includes('1PCT') || normalizedText.includes('1 PERCENT')) {
     claimedTdsRate = 1;
     claimedTdsSection = '194C';
-  } else if (text.includes('5%') || text.includes('5PCT') || text.includes('194H')) {
+  } else if (normalizedText.includes('5%') || normalizedText.includes('5PCT') || normalizedText.includes('194H')) {
     claimedTdsRate = 5;
     claimedTdsSection = '194H';
   }
 
-  // Extract bank charge or fee deductions: "FEE-500", "CHG 100", "DISC 250"
+  // Extract bank charges or fee deductions: "FEE-500", "CHG 100", "DISC 250"
   const feeMatch = text.match(/(?:FEE|CHG|CHARGE|COMM)[^\d]*(\d+(?:\.\d+)?)/i);
   if (feeMatch) {
     claimedBankCharges = parseFloat(feeMatch[1]);
@@ -185,7 +175,7 @@ function localIntelligentExtraction(narration, bankAmount) {
     claimedDiscount,
     netPaymentAmount: bankAmount,
     confidenceScore: candidateInvoiceNumbers.length > 0 ? 0.92 : 0.78,
-    reasoningSummary: `Extracted tokens via intelligent heuristic analyzer. Vendor: ${vendorName || 'Unknown'}, Invoices: [${candidateInvoiceNumbers.join(', ')}], Claimed TDS: ${claimedTdsRate ? claimedTdsRate + '%' : 'None'}.`,
+    reasoningSummary: `Extracted entities from narration. Vendor: ${vendorName || 'Unresolved'}, Invoices: [${candidateInvoiceNumbers.join(', ')}], Claimed TDS: ${claimedTdsRate ? claimedTdsRate + '%' : 'None'}.`,
     extractedTokens: { rawTokens: text.split(/[\s/|-]+/).filter(Boolean) },
   };
 }
@@ -193,7 +183,7 @@ function localIntelligentExtraction(narration, bankAmount) {
 /**
  * Executes GenAI worker (with RAG cache check, Gemini API call, or Mock LLM execution)
  */
-async function executeGenAIWorker(bankTxn, options = {}) {
+async function executeGenAIWorker(bankTxn, options = {}, context = {}) {
   const narration = bankTxn.narration || '';
   const bankAmount = Number(bankTxn.amount);
 
@@ -209,7 +199,7 @@ async function executeGenAIWorker(bankTxn, options = {}) {
   // 2. Mock LLM mode (realistic simulated network latency ~180-250ms for benchmark & CI)
   if (options.mockLlm || process.env.MOCK_LLM === 'true') {
     await new Promise((r) => setTimeout(r, 180 + Math.random() * 80));
-    const extracted = localIntelligentExtraction(narration, bankAmount);
+    const extracted = localIntelligentExtraction(narration, bankAmount, context);
     storeRAGCache(narration, extracted);
     return {
       ...AIExtractionSchema.parse(extracted),
@@ -253,15 +243,15 @@ Return STRICT JSON matching this schema:
         ragCacheHit: false,
       };
     } catch (err) {
-      console.warn(`[Tier 4 GenAI] Gemini API error, falling over to resilient heuristic parser:`, err.message);
+      console.warn('[GenAI Pool] Gemini call failed, falling back to local extractor:', err.message);
     }
   }
 
-  // 4. Fallback Heuristic
-  const extracted = localIntelligentExtraction(narration, bankAmount);
-  storeRAGCache(narration, extracted);
+  // 4. Resilient Fallback Extractor
+  const fallback = localIntelligentExtraction(narration, bankAmount, context);
+  storeRAGCache(narration, fallback);
   return {
-    ...AIExtractionSchema.parse(extracted),
+    ...AIExtractionSchema.parse(fallback),
     ragCacheHit: false,
   };
 }
@@ -272,36 +262,60 @@ Return STRICT JSON matching this schema:
  * - Evaluates RAG cache before every LLM call
  * - Returns candidate invoice, extracted deduction tokens, and execution timing
  */
-export async function matchTier4(bankTxn, options = {}) {
+export async function matchTier4(bankTxn, options = {}, context = {}) {
   return limit(async () => {
     const startTime = performance.now();
     const bankAmount = Number(bankTxn.amount);
 
-    const aiResult = await executeGenAIWorker(bankTxn, options);
+    const aiResult = await executeGenAIWorker(bankTxn, options, context);
     const ragCacheHit = Boolean(aiResult.ragCacheHit);
 
     // 1. Locate candidate invoices matching extracted invoice numbers
     let candidateInvoices = [];
     if (aiResult.candidateInvoiceNumbers.length > 0) {
-      candidateInvoices = await Invoice.find({
-        invoiceNumber: { $in: aiResult.candidateInvoiceNumbers.map((n) => new RegExp(`^${n}$`, 'i')) },
-        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-      }).lean();
+      if (context.allInvoices) {
+        const patterns = aiResult.candidateInvoiceNumbers.map((n) => n.toUpperCase().replace(/[^A-Z0-9]/g, ''));
+        candidateInvoices = context.allInvoices.filter((inv) => {
+          if (inv.status === 'PAID') return false;
+          const cleanInv = inv.invoiceNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
+          return patterns.some((p) => cleanInv.includes(p) || p.includes(cleanInv));
+        });
+      } else {
+        candidateInvoices = await Invoice.find({
+          invoiceNumber: { $in: aiResult.candidateInvoiceNumbers.map((n) => new RegExp(`^${n}$`, 'i')) },
+          status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+        }).lean();
+      }
     }
 
     // 2. Fallback search by vendor name if no invoice number matched
     if (!candidateInvoices.length && aiResult.vendorName) {
-      candidateInvoices = await Invoice.find({
-        customerName: { $regex: new RegExp(aiResult.vendorName, 'i') },
-        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-      }).limit(5).lean();
+      if (context.allInvoices) {
+        const vClean = aiResult.vendorName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        candidateInvoices = context.allInvoices.filter((inv) => {
+          if (inv.status === 'PAID') return false;
+          const cClean = (inv.customerName || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          return cClean.includes(vClean) || vClean.includes(cClean);
+        }).slice(0, 5);
+      } else {
+        candidateInvoices = await Invoice.find({
+          customerName: { $regex: new RegExp(aiResult.vendorName, 'i') },
+          status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+        }).limit(5).lean();
+      }
     }
 
     if (!candidateInvoices.length) {
-      candidateInvoices = await Invoice.find({
-        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-        totalAmount: { $gte: bankAmount * 0.8, $lte: bankAmount * 1.5 },
-      }).limit(5).lean();
+      if (context.allInvoices) {
+        candidateInvoices = context.allInvoices
+          .filter((inv) => inv.status !== 'PAID' && inv.totalAmount >= bankAmount * 0.8 && inv.totalAmount <= bankAmount * 1.5)
+          .slice(0, 5);
+      } else {
+        candidateInvoices = await Invoice.find({
+          status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+          totalAmount: { $gte: bankAmount * 0.8, $lte: bankAmount * 1.5 },
+        }).limit(5).lean();
+      }
     }
 
     // 3. For each candidate invoice, evaluate arithmetic with extracted TDS and charges
@@ -358,14 +372,14 @@ export async function matchTier4(bankTxn, options = {}) {
           deductions: {
             tdsAmount: Number(calculatedTdsBase.toFixed(2)),
             tdsRate,
-            tdsSection,
+            tdsSection: `${tdsSection}_BASE_CBDT_23`,
             bankCharges: Number(bankCharges.toFixed(2)),
             discount: Number(discount.toFixed(2)),
             gstRounding: Number((calculatedNetBase - bankAmount).toFixed(2)),
             totalDeductions: Number(totalDeductionsBase.toFixed(2)),
           },
           durationMs,
-          matchType: ragCacheHit ? 'GENAI_RAG_CACHE_REUSE' : 'GENAI_LLM_POOL_RESOLUTION',
+          matchType: ragCacheHit ? 'GENAI_RAG_CACHE_REUSE' : 'GENAI_LLM_POOL_RESOLUTION_BASE_TDS',
         };
       }
     }
@@ -374,24 +388,12 @@ export async function matchTier4(bankTxn, options = {}) {
     return {
       matched: false,
       tier: 'TIER_4',
-      potentialInvoice: candidateInvoices[0] || null,
+      invoice: candidateInvoices.length > 0 ? candidateInvoices[0] : null,
       aiExtraction: aiResult,
       ragCacheHit,
       confidence: 0.35,
-      deductions: {
-        tdsAmount: 0,
-        tdsRate: 0,
-        tdsSection: 'NONE',
-        bankCharges: 0,
-        discount: 0,
-        gstRounding: 0,
-        totalDeductions: 0,
-      },
       durationMs,
-      reason: 'GenAI extracted tokens but arithmetic could not be mathematically proven by Circuit Breaker',
+      reason: aiResult.reasoningSummary || 'GenAI worker pool could not ground extracted entities to an open ledger invoice with zero-trust math precision.',
     };
   });
 }
-
-// Backwards compatibility alias
-export const matchTier3 = matchTier4;

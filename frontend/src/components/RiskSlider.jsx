@@ -1,16 +1,19 @@
-import React from 'react';
-import { Sliders, Search, Filter, Check, AlertCircle } from 'lucide-react';
+﻿import React from 'react';
+import { Sliders, Search, Filter } from 'lucide-react';
 
 export function RiskSlider({
   minConfidence,
   onConfidenceChange,
   statusFilter,
+  onStatusChange,
   onStatusFilterChange,
   searchQuery,
   onSearchChange,
   filteredCount,
   totalCount,
 }) {
+  const handleStatusChange = onStatusChange || onStatusFilterChange;
+
   return (
     <div className="p-4 rounded-xl bg-razor-card border border-razor-border space-y-4">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -105,18 +108,19 @@ export function RiskSlider({
 
         {[
           { key: 'ALL', label: 'All Records' },
-          { key: 'MATCHED', label: 'Matched (Paid)', count: null },
+          { key: 'MATCHED', label: 'Matched (Paid)' },
           { key: 'EXCEPTION', label: 'Discrepancies / Outbox' },
-          { key: 'TIER_1', label: 'Tier 1 (Deterministic)' },
-          { key: 'TIER_2', label: 'Tier 2 (Rule Cache)' },
-          { key: 'TIER_3', label: 'Tier 3 (GenAI Pool)' },
+          { key: 'TIER_1', label: 'Tier 1 (Exact Match)' },
+          { key: 'TIER_2', label: 'Tier 2 (Tolerance & Split)' },
+          { key: 'TIER_3', label: 'Tier 3 (Rule Cache)' },
+          { key: 'TIER_4', label: 'Tier 4 (GenAI Pool)' },
         ].map((tab) => {
           const isActive = statusFilter === tab.key;
           return (
             <button
               key={tab.key}
-              onClick={() => onStatusFilterChange(tab.key)}
-              className={`px-2.5 py-1 rounded-md text-xs transition-all ${
+              onClick={() => handleStatusChange && handleStatusChange(tab.key)}
+              className={`px-2.5 py-1 rounded-md text-xs transition-all cursor-pointer ${
                 isActive
                   ? 'bg-razor-blue/20 text-razor-blue border border-razor-blue/40 font-semibold'
                   : 'bg-slate-900/60 hover:bg-slate-800 text-slate-400 border border-slate-800'

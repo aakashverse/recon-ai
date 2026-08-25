@@ -4,179 +4,139 @@
     "txnDate": "2026-08-01",
     "utrNumber": "AXISN098273641",
     "amount": 100000,
-    "narration": "NEFT/AXISN098273641/INV-2024-1001/TECHCORP/GROSS-FULL-PMT/BLR-EAST-BR",
-    "expectedTier": "TIER_1",
-    "expectedResult": "Exact Match on INV-2024-1001 (0 deductions) (99% Confidence)"
+    "narration": "NEFT/AXISN098273641/INV-2024-1001/TECHCORP/GROSS-FULL-PMT/BLR-EAST-BR"
   },
   {
     "bankTxnId": "CHAOS-02",
     "txnDate": "2026-08-02",
     "utrNumber": "PUNB992211445",
     "amount": 117600,
-    "narration": "IFT/BLUESKY-LOGISTICS/INV-2024-1005/TDS-2PCT-194C/NET-SETTLE",
-    "expectedTier": "TIER_2",
-    "expectedResult": "Statutory 2% TDS Sec 194C ($2400 deduction) on INV-2024-1005 (95% Confidence)"
+    "narration": "IFT/BLUESKY-LOGISTICS/INV-2024-1005/TDS-2PCT-194C/NET-SETTLE"
   },
   {
     "bankTxnId": "CHAOS-03",
     "txnDate": "2026-08-03",
     "utrNumber": "UTIB556677889",
     "amount": 85500,
-    "narration": "NEFT//UTIB556677889//KORE-NETWORKS//INV-2024-1008//TDS-10PCT-194J//EXP-RECON",
-    "expectedTier": "TIER_2",
-    "expectedResult": "Statutory 10% TDS Sec 194J ($9500 deduction) on INV-2024-1008 (95% Confidence)"
+    "narration": "NEFT//UTIB556677889//KORE-NETWORKS//INV-2024-1008//TDS-10PCT-194J//EXP-RECON"
   },
   {
     "bankTxnId": "CHAOS-04",
     "txnDate": "2026-08-03",
     "utrNumber": "BARB445566778",
     "amount": 304000,
-    "narration": "RTGS/NOVA-INFOTECH/INV-2024-1007/TDS-5PCT-194H/COMMISSION-RETAINER",
-    "expectedTier": "TIER_2",
-    "expectedResult": "Statutory 5% TDS Sec 194H ($16000 deduction) on INV-2024-1007 (95% Confidence)"
+    "narration": "RTGS/NOVA-INFOTECH/INV-2024-1007/TDS-5PCT-194H/COMMISSION-RETAINER"
   },
   {
     "bankTxnId": "CHAOS-05",
     "txnDate": "2026-08-04",
     "utrNumber": "YESB112244668",
     "amount": 160000,
-    "narration": "NEFT-HIGHRISK-INV-2024-5003-SEC206AB-PENALTY-20PCT-DED",
-    "expectedTier": "TIER_2",
-    "expectedResult": "Statutory 20% TDS Sec 206AB Non-Filer ($40000 deduction) on INV-2024-5003 (95% Confidence)"
+    "narration": "NEFT-HIGHRISK-INV-2024-5003-SEC206AB-PENALTY-20PCT-DED"
   },
   {
     "bankTxnId": "CHAOS-06",
     "txnDate": "2026-08-04",
     "utrNumber": "KKBK998811223",
     "amount": 499500,
-    "narration": "RTGS/TITAN-MANUFACTURING/INV-2024-5001/TDS-194Q-0.1PCT/RAW-MATERIAL",
-    "expectedTier": "TIER_2",
-    "expectedResult": "Statutory 0.1% TDS Sec 194Q Goods ($500 deduction) on INV-2024-5001 (95% Confidence)"
+    "narration": "RTGS/TITAN-MANUFACTURING/INV-2024-5001/TDS-194Q-0.1PCT/RAW-MATERIAL"
   },
   {
     "bankTxnId": "CHAOS-07",
     "txnDate": "2026-08-05",
     "utrNumber": "INDB778899001",
     "amount": 149950,
-    "narration": "CMS-VANGUARD-SYSTEMS-INV-2024-1010-LESS-WIRE-SURCHARGE-50",
-    "expectedTier": "TIER_2",
-    "expectedResult": "Flat Gateway/Wire Fee ($50 deduction) on INV-2024-1010 (89% Confidence)"
+    "narration": "CMS-VANGUARD-SYSTEMS-INV-2024-1010-LESS-WIRE-SURCHARGE-50"
   },
   {
     "bankTxnId": "CHAOS-08",
     "txnDate": "2026-08-05",
     "utrNumber": "ICICIN881177223",
     "amount": 225000,
-    "narration": "CMS-CONSOLIDATED-SPLIT-PMT-INV-2024-1006-AND-INV-2024-1009",
-    "expectedTier": "TIER_2",
-    "expectedResult": "Bounded Split-Match settling INV-2024-1006 (180k) + INV-2024-1009 (45k) (90% Confidence)"
+    "narration": "CMS-CONSOLIDATED-SPLIT-PMT-INV-2024-1006-AND-INV-2024-1009"
   },
   {
     "bankTxnId": "CHAOS-09",
     "txnDate": "2026-08-06",
     "utrNumber": "HDFCN554433221",
     "amount": 180000,
-    "narration": "INFOSYS LIMITED CONSULTING CHARGES INV-2024-2001 MONTHLY SETTLEMENT CORP BLR",
-    "expectedTier": "TIER_3",
-    "expectedResult": "Historical Rule Match: Infosys 10% TDS rule on INV-2024-2001 (93% Confidence)"
+    "narration": "INFOSYS LIMITED CONSULTING CHARGES INV-2024-2001 MONTHLY SETTLEMENT CORP BLR"
   },
   {
     "bankTxnId": "CHAOS-10",
     "txnDate": "2026-08-06",
     "utrNumber": "SBIN332211990",
     "amount": 294000,
-    "narration": "TATA CONSULTANCY SERVICES VENDOR SETTLEMENT AUGUST CONTRACT",
-    "expectedTier": "TIER_3",
-    "expectedResult": "Historical Rule Match: TCS 2% TDS rule on INV-2024-2003 (93% Confidence)"
+    "narration": "TATA CONSULTANCY SERVICES VENDOR SETTLEMENT AUGUST CONTRACT"
   },
   {
     "bankTxnId": "CHAOS-11",
     "txnDate": "2026-08-07",
     "utrNumber": "ICICIN665544332",
     "amount": 147000,
-    "narration": "WIPRO TECHNOLOGIES CORP DISBURSEMENT SERVICES DEPT",
-    "expectedTier": "TIER_3",
-    "expectedResult": "Historical Rule Match: Wipro 2% TDS rule on INV-2024-2005 (93% Confidence)"
+    "narration": "WIPRO TECHNOLOGIES CORP DISBURSEMENT SERVICES DEPT"
   },
   {
     "bankTxnId": "CHAOS-12",
     "txnDate": "2026-08-07",
     "utrNumber": "HDFCN887766554",
     "amount": 78400,
-    "narration": "SWIGGY BUNDL TECH DELIVERY LOGISTICS SETTLEMENT",
-    "expectedTier": "TIER_3",
-    "expectedResult": "Historical Rule Match: Swiggy 2% TDS rule on INV-2024-2007 (93% Confidence)"
+    "narration": "SWIGGY BUNDL TECH DELIVERY LOGISTICS SETTLEMENT"
   },
   {
     "bankTxnId": "CHAOS-13",
     "txnDate": "2026-08-08",
     "utrNumber": "CITIN994433221",
     "amount": 144000,
-    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO1-HEXAWAVE-SERVICES-DEPT",
-    "expectedTier": "TIER_4",
-    "expectedResult": "GenAI OCR Typo Recovery: 2O24-3OO1 resolved to INV-2024-3001 (86% Confidence)"
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO1-HEXAWAVE-SERVICES-DEPT"
   },
   {
     "bankTxnId": "CHAOS-14",
     "txnDate": "2026-08-08",
     "utrNumber": "CITIN994433222",
     "amount": 88200,
-    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO2-DELTA-REGIONAL-OFFICE",
-    "expectedTier": "TIER_4",
-    "expectedResult": "RAG Cache-First Hit: Reuses normalized fingerprint pattern ($0 LLM cost) (86% Confidence)"
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO2-DELTA-REGIONAL-OFFICE"
   },
   {
     "bankTxnId": "CHAOS-15",
     "txnDate": "2026-08-09",
     "utrNumber": "CITIN994433223",
     "amount": 189000,
-    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO4-OMNISECURE-CENTRAL-PAYMENT",
-    "expectedTier": "TIER_4",
-    "expectedResult": "GenAI OCR Typo Recovery: 2O24-3OO4 resolved to INV-2024-3004 (86% Confidence)"
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO4-OMNISECURE-CENTRAL-PAYMENT"
   },
   {
     "bankTxnId": "CHAOS-16",
     "txnDate": "2026-08-09",
     "utrNumber": "AXISN991100223",
     "amount": 82000,
-    "narration": "NEFT-INV-2024-4001-DISPUTED-CORP-SHORTAGE",
-    "expectedTier": "OUTBOX_EXCEPTION",
-    "expectedResult": "Circuit Breaker Caught: Rs 18000 unexplained shortage -> WhatsApp/Email Draft (35% Confidence)"
+    "narration": "NEFT-INV-2024-4001-DISPUTED-CORP-SHORTAGE"
   },
   {
     "bankTxnId": "CHAOS-17",
     "txnDate": "2026-08-10",
     "utrNumber": "HDFCN992211883",
     "amount": 215000,
-    "narration": "NEFT-INV-2024-4002-FAULTY-DEDUCTIONS-EXCESS",
-    "expectedTier": "OUTBOX_EXCEPTION",
-    "expectedResult": "Circuit Breaker Caught: Rs 15000 overpayment variance -> Outbox (35% Confidence)"
+    "narration": "NEFT-INV-2024-4002-FAULTY-DEDUCTIONS-EXCESS"
   },
   {
     "bankTxnId": "CHAOS-18",
     "txnDate": "2026-08-10",
     "utrNumber": "KKBK776655441",
     "amount": 412000,
-    "narration": "NEFT-UNREGISTERED-OVERSEAS-SUPPLIER-INV-9999-REMITTANCE",
-    "expectedTier": "OUTBOX_EXCEPTION",
-    "expectedResult": "Unmapped Overseas Remittance -> Exception Queue (18% Confidence)"
+    "narration": "NEFT-UNREGISTERED-OVERSEAS-SUPPLIER-INV-9999-REMITTANCE"
   },
   {
     "bankTxnId": "CHAOS-19",
     "txnDate": "2026-08-10",
     "utrNumber": "UPI998877665544",
     "amount": 33333,
-    "narration": "UPI-TRANSFER-UNKNOWN-REF-NO-MATCH-99238",
-    "expectedTier": "OUTBOX_EXCEPTION",
-    "expectedResult": "Unidentified Retail Remittance -> Exception Queue (18% Confidence)"
+    "narration": "UPI-TRANSFER-UNKNOWN-REF-NO-MATCH-99238"
   },
   {
     "bankTxnId": "CHAOS-20",
     "txnDate": "2026-08-10",
     "utrNumber": "AXISN098273641",
     "amount": 100000,
-    "narration": "NEFT/AXISN098273641/INV-2024-1001/TECHCORP/GROSS-FULL-PMT/BLR-EAST-BR",
-    "expectedTier": "DUPLICATE_REJECTED",
-    "expectedResult": "SHA-256 Idempotency Guard: Replay of CHAOS-01 safely rejected"
+    "narration": "NEFT/AXISN098273641/INV-2024-1001/TECHCORP/GROSS-FULL-PMT/BLR-EAST-BR"
   }
 ]

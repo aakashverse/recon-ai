@@ -89,6 +89,10 @@ const bankLedgerSchema = new mongoose.Schema(
       mathEquation: { type: String, default: null },
       reason: { type: String, default: null },
     },
+    dagNodes: {
+      type: Array,
+      default: [],
+    },
     txnDate: {
       type: Date,
       default: Date.now,

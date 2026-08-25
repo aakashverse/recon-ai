@@ -54,7 +54,7 @@ export function MetricsOverview({ stats, batchProgress }) {
                 <ArrowUpRight className="w-3.5 h-3.5" />
                 {matchedCount} txns
               </span>
-              <span>across 3 tiers</span>
+              <span>across 4 tiers</span>
             </div>
           </div>
         </div>

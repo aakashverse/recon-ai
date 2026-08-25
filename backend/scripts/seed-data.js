@@ -6,6 +6,7 @@ import { Invoice } from '../src/models/Invoice.js';
 import { RuleCache } from '../src/models/RuleCache.js';
 import { BankLedger } from '../src/models/BankLedger.js';
 import { ReconciliationEvent } from '../src/models/ReconciliationEvent.js';
+import { JournalEntry } from '../src/models/JournalEntry.js';
 import { resetChainPointer } from '../src/services/reconciliationEngine.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1130,6 +1131,7 @@ export async function seedDatabase() {
     RuleCache.deleteMany({}),
     BankLedger.deleteMany({}),
     ReconciliationEvent.deleteMany({}),
+    JournalEntry.deleteMany({}),
   ]);
   await resetChainPointer();
 

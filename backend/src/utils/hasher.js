@@ -35,7 +35,7 @@ export function calculateEventHash(previousHash, eventData) {
   const bankTxnId = eventData.bankTxnId || '';
   const invoiceNumber = eventData.invoiceNumber || 'NONE';
   const resolvedTier = eventData.resolvedTier || 'UNKNOWN';
-  const bankReceived = Number(eventData.amount || eventData.circuitBreakerResult?.bankReceived || 0).toFixed(2);
+  const bankReceived = Number(eventData.bankAmount ?? eventData.amount ?? eventData.circuitBreakerResult?.bankReceived ?? 0).toFixed(2);
   const cbDifference = Number(eventData.circuitBreakerResult?.difference || 0).toFixed(2);
   const batchId = eventData.batchId || '';
 

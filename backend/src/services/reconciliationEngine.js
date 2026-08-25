@@ -7,6 +7,7 @@ import { validateCircuitBreaker } from './circuitBreaker.js';
 import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
+import { RuleCache } from '../models/RuleCache.js';
 import { JournalEntry } from '../models/JournalEntry.js';
 import { JournalService } from './journalService.js';
 import { OutboxService } from './outboxService.js';
@@ -30,8 +31,9 @@ export async function resetChainPointer() {
 export class ReconciliationEngine {
   /**
    * Reconciles a single bank transaction through the 4-Tier Cascaded Pipeline
+   * Supports optional in-memory context for sub-millisecond batch execution
    */
-  static async processTransaction(rawTxn, batchId = null, options = {}) {
+  static async processTransaction(rawTxn, batchId = null, options = {}, context = {}) {
     const totalStart = performance.now();
     const dagNodes = [];
 
@@ -107,7 +109,7 @@ export class ReconciliationEngine {
     // -----------------------------------------------------------------------
     // 2. Tier 1: Deterministic Exact Matcher (<2ms)
     // -----------------------------------------------------------------------
-    const t1Res = await matchTier1(ledgerDoc);
+    const t1Res = await matchTier1(ledgerDoc, context);
     tier1Duration = t1Res.durationMs;
 
     if (t1Res.matched) {
@@ -137,7 +139,7 @@ export class ReconciliationEngine {
       // ---------------------------------------------------------------------
       // 3. Tier 2: Tolerance, Explainable-Delta & Bounded Split-Match (<5ms)
       // ---------------------------------------------------------------------
-      const t2Res = await matchTier2(ledgerDoc);
+      const t2Res = await matchTier2(ledgerDoc, context);
       tier2Duration = t2Res.durationMs;
 
       if (t2Res.matched) {
@@ -153,7 +155,6 @@ export class ReconciliationEngine {
             matchType: t2Res.matchType,
             invoiceNumber: t2Res.invoice?.invoiceNumber,
             splitCount: t2Res.splitInvoices?.length || 1,
-            explanation: t2Res.explanation,
           },
         });
         dagNodes.push({ nodeKey: 'STEP_TIER_3', name: 'Tier 3: Self-Healing Rule Cache', tier: 'TIER_3', status: 'BYPASSED', durationMs: 0 });
@@ -171,7 +172,7 @@ export class ReconciliationEngine {
         // -------------------------------------------------------------------
         // 4. Tier 3: Self-Healing Rule Cache (<10ms)
         // -------------------------------------------------------------------
-        const t3Res = await matchTier3(ledgerDoc);
+        const t3Res = await matchTier3(ledgerDoc, context);
         tier3Duration = t3Res.durationMs;
 
         if (t3Res.matched) {
@@ -185,7 +186,7 @@ export class ReconciliationEngine {
             durationMs: t3Res.durationMs,
             outputData: {
               matchType: t3Res.matchType,
-              ruleId: t3Res.ruleApplied?._id,
+              ruleApplied: t3Res.ruleApplied,
               invoiceNumber: t3Res.invoice?.invoiceNumber,
             },
           });
@@ -204,31 +205,28 @@ export class ReconciliationEngine {
           // 5. Cost Circuit Breaker Check before Tier 4 GenAI Call
           // -----------------------------------------------------------------
           const currentBatchCost = batchCostTracker.get(batchId) || 0;
-          const maxBatchCost = options.maxGenAICost || 0.50; // Default $0.50 ceiling per batch
+          const maxBatchCost = options.costCapUsd || options.maxGenAICost || (process.env.GENAI_COST_CAP_USD ? parseFloat(process.env.GENAI_COST_CAP_USD) : 0.50);
 
           if (currentBatchCost >= maxBatchCost) {
-            // Cost Circuit Breaker Tripped!
-            sseManager.broadcast('cost_breaker:triggered', {
-              batchId,
-              currentBatchCost,
-              maxBatchCost,
-              message: `GenAI Spend Ceiling ($${maxBatchCost}) reached. Tripping Cost Circuit Breaker.`,
-            });
-
             dagNodes.push({
               nodeKey: 'STEP_TIER_4',
               name: 'Tier 4: GenAI & RAG Worker Pool',
               tier: 'TIER_4',
               status: 'BYPASSED',
               durationMs: 0.1,
-              outputData: { costCapTriggered: true, currentBatchCost, maxBatchCost },
+              outputData: { costCapTriggered: true, currentBatchCost, maxBatchCost, reason: 'COST_CAP_TRIGGERED' },
             });
 
             matchResult = {
               matched: false,
               tier: 'TIER_4',
               confidence: 0,
-              reason: `Cost Circuit Breaker tripped (Batch spend $${currentBatchCost.toFixed(3)} >= $${maxBatchCost}). Routed to Exception Outbox.`,
+              reason: 'COST_CAP_TRIGGERED',
+              discrepancyDetails: {
+                reason: `Cumulative GenAI spend cap ($${maxBatchCost.toFixed(2)}) reached ($${currentBatchCost.toFixed(3)} spent). Routed to Outbox to prevent budget overrun.`,
+                discrepancyType: 'COST_CAP_TRIGGERED',
+                discrepancyAmount: ledgerDoc.amount,
+              },
             };
             resolvedTier = 'OUTBOX_EXCEPTION';
           } else {
@@ -239,11 +237,10 @@ export class ReconciliationEngine {
               bankTxnId: ledgerDoc.bankTxnId,
             });
 
-            const t4Res = await matchTier4(ledgerDoc, options);
+            const t4Res = await matchTier4(ledgerDoc, options, context);
             tier4Duration = t4Res.durationMs;
             ragCacheHit = Boolean(t4Res.ragCacheHit);
 
-            // Update batch GenAI cost (RAG cache hits cost $0.000, real calls cost $0.005)
             const callCost = ragCacheHit ? 0.000 : 0.005;
             batchCostTracker.set(batchId, currentBatchCost + callCost);
 
@@ -252,14 +249,14 @@ export class ReconciliationEngine {
               resolvedTier = 'TIER_4';
               dagNodes.push({
                 nodeKey: 'STEP_TIER_4',
-                name: 'Tier 4: GenAI & RAG Worker Pool',
+                name: ragCacheHit ? 'Tier 4: RAG Fingerprint Cache Hit ($0.00)' : 'Tier 4: GenAI Worker Pool (Gemini 1.5)',
                 tier: 'TIER_4',
                 status: 'SUCCESS',
                 durationMs: t4Res.durationMs,
                 outputData: {
-                  invoiceNumber: t4Res.invoice?.invoiceNumber,
-                  aiReasoning: t4Res.aiExtraction?.reasoningSummary,
                   ragCacheHit,
+                  matchType: t4Res.matchType,
+                  invoiceNumber: t4Res.invoice?.invoiceNumber,
                   confidence: t4Res.confidence,
                 },
               });
@@ -268,15 +265,11 @@ export class ReconciliationEngine {
               resolvedTier = 'OUTBOX_EXCEPTION';
               dagNodes.push({
                 nodeKey: 'STEP_TIER_4',
-                name: 'Tier 4: GenAI & RAG Worker Pool',
+                name: 'Tier 4: GenAI Worker Pool',
                 tier: 'TIER_4',
-                status: t4Res.potentialInvoice ? 'DISCREPANCY_DETECTED' : 'FAILED',
+                status: 'FAILED',
                 durationMs: t4Res.durationMs,
-                outputData: {
-                  reason: t4Res.reason,
-                  aiExtraction: t4Res.aiExtraction,
-                  ragCacheHit,
-                },
+                outputData: { reason: t4Res.reason || 'GenAI pool unable to ground extraction to open invoice' },
               });
             }
           }
@@ -285,52 +278,42 @@ export class ReconciliationEngine {
     }
 
     // -----------------------------------------------------------------------
-    // 7. Node.js Zero-Trust Math Circuit Breaker
+    // 7. Deterministic Zero-Trust Circuit Breaker Validation
     // -----------------------------------------------------------------------
-    const candidateInvoice = matchResult?.invoice || matchResult?.potentialInvoice;
+    const cbStart = performance.now();
+    const candidateInvoice = matchResult?.invoice || null;
     const splitInvoices = matchResult?.splitInvoices || [];
+    const deductions = matchResult?.deductions || {};
+
     let circuitBreakerResult = null;
-    let cbDuration = 0;
-
-    if (candidateInvoice) {
-      circuitBreakerResult = validateCircuitBreaker(
-        candidateInvoice,
-        ledgerDoc.amount,
-        matchResult.deductions || {},
-        splitInvoices
-      );
-      cbDuration = circuitBreakerResult.durationMs;
-
-      dagNodes.push({
-        nodeKey: 'STEP_CIRCUIT_BREAKER',
-        name: 'Node.js Math Circuit Breaker',
-        status: circuitBreakerResult.passed ? 'SUCCESS' : 'DISCREPANCY_DETECTED',
-        durationMs: circuitBreakerResult.durationMs,
-        outputData: circuitBreakerResult,
-      });
+    if (candidateInvoice || splitInvoices.length >= 2) {
+      if (splitInvoices.length >= 2) {
+        circuitBreakerResult = validateCircuitBreaker(candidateInvoice, ledgerDoc.amount, deductions, splitInvoices);
+      } else {
+        circuitBreakerResult = validateCircuitBreaker(candidateInvoice, ledgerDoc.amount, deductions);
+      }
     } else {
       circuitBreakerResult = {
         passed: false,
+        reason: matchResult?.reason || 'No candidate invoice found',
+        equation: `${ledgerDoc.amount} (Bank) vs No matching invoice found`,
         difference: ledgerDoc.amount,
-        equation: `₹${ledgerDoc.amount} (Bank) vs No matching invoice found`,
-        invoiceGross: 0,
-        deductionsTotal: 0,
-        bankReceived: ledgerDoc.amount,
-        durationMs: 0.1,
-        status: 'NO_CANDIDATE_INVOICE',
-        reason: 'No invoice candidate found across all tiers.',
+        discrepancyType: 'UNMATCHED',
+        discrepancyAmount: ledgerDoc.amount,
       };
-      dagNodes.push({
-        nodeKey: 'STEP_CIRCUIT_BREAKER',
-        name: 'Node.js Math Circuit Breaker',
-        status: 'FAILED',
-        durationMs: 0.1,
-        outputData: circuitBreakerResult,
-      });
     }
 
+    const cbDuration = performance.now() - cbStart;
+    dagNodes.push({
+      nodeKey: 'STEP_CIRCUIT_BREAKER',
+      name: 'Zero-Trust Circuit Breaker Math Verification',
+      status: circuitBreakerResult.passed ? 'SUCCESS' : 'DISCREPANCY_DETECTED',
+      durationMs: cbDuration,
+      outputData: circuitBreakerResult,
+    });
+
     // -----------------------------------------------------------------------
-    // 8. State Resolution & ACID Transaction Commit with Cryptographic Hash Chain
+    // 8. State Resolution & ACID Commit with Cryptographic Hash Chain
     // -----------------------------------------------------------------------
     const commitStart = performance.now();
     const isReconciled = Boolean(matchResult?.matched && circuitBreakerResult?.passed);
@@ -339,7 +322,6 @@ export class ReconciliationEngine {
     let emailDraft = null;
     let createdEvent = null;
 
-    // Fetch and maintain running cryptographic chain pointer
     if (!currentChainHash) {
       await resetChainPointer();
     }
@@ -347,6 +329,17 @@ export class ReconciliationEngine {
 
     await withTransaction(async (session) => {
       if (isReconciled && candidateInvoice) {
+        // Mark candidate invoice as in-memory PAID to prevent race conditions
+        candidateInvoice.status = 'PAID';
+        if (splitInvoices?.length) {
+          for (const s of splitInvoices) {
+            if (context.invoiceByNumber) {
+              const inv = context.invoiceByNumber.get(s.invoiceNumber?.toUpperCase());
+              if (inv) inv.status = 'PAID';
+            }
+          }
+        }
+
         // Update Bank Ledger
         ledgerDoc.reconciliationStatus = 'MATCHED';
         ledgerDoc.matchedTier = resolvedTier;
@@ -366,7 +359,7 @@ export class ReconciliationEngine {
         };
         await ledgerDoc.save({ session });
 
-        // Update Invoices (Handle single or multi-invoice split settlement)
+        // Update Invoices
         if (splitInvoices.length >= 2) {
           const splitIds = splitInvoices.map((i) => i.invoiceId);
           await Invoice.updateMany(
@@ -404,7 +397,7 @@ export class ReconciliationEngine {
           );
         }
 
-        // Generate Rillet-Style Double-Entry Journal Entry & AI Audit Memo
+        // Generate Rillet-Style Double-Entry Journal Entry
         const journalDocData = JournalService.generateJournalEntry(ledgerDoc, candidateInvoice, matchResult);
         await JournalEntry.create([journalDocData], { session });
 
@@ -451,7 +444,7 @@ export class ReconciliationEngine {
         };
         await ledgerDoc.save({ session });
 
-        // Generate Outbox notification drafts
+        // Lazy-friendly Outbox notification drafts
         whatsappDraft = OutboxService.generateWhatsAppDraft(ledgerDoc, candidateInvoice, ledgerDoc.discrepancyDetails);
         emailDraft = OutboxService.generateEmailDraft(ledgerDoc, candidateInvoice, ledgerDoc.discrepancyDetails);
 
@@ -470,33 +463,39 @@ export class ReconciliationEngine {
       // Compute Cryptographic Hash for Audit Trail
       const eventTimestamp = new Date();
       const chainIndex = ++currentChainIndex;
+      const finalInvoiceNumber = candidateInvoice?.invoiceNumber || (splitInvoices?.length ? splitInvoices.map((s) => s.invoiceNumber).join('+') : 'NONE');
       const eventHash = calculateEventHash(previousEventHash, {
         chainIndex,
         bankTxnId: ledgerDoc.bankTxnId,
-        invoiceNumber: candidateInvoice ? candidateInvoice.invoiceNumber : 'NONE',
+        invoiceNumber: finalInvoiceNumber,
         resolvedTier: isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION',
-        amount: ledgerDoc.amount,
+        bankAmount: ledgerDoc.amount,
         circuitBreakerResult,
         batchId,
       });
-
-      // Advance running chain pointer
       currentChainHash = eventHash;
 
-      // Record Cryptographically Chained Reconciliation Event
       const [newEvent] = await ReconciliationEvent.create(
         [
           {
             chainIndex,
             bankTxnId: ledgerDoc.bankTxnId,
-            invoiceId: candidateInvoice ? candidateInvoice._id : null,
-            invoiceNumber: candidateInvoice ? candidateInvoice.invoiceNumber : null,
-            splitInvoices,
+            invoiceId: candidateInvoice?._id || null,
+            invoiceNumber: finalInvoiceNumber,
+            splitInvoices: splitInvoices.map((s) => ({ invoiceId: s.invoiceId, invoiceNumber: s.invoiceNumber, amount: s.amount })),
+            reconciliationStatus: ledgerDoc.reconciliationStatus,
+            resolvedTier: isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION',
+            confidenceScore: ledgerDoc.confidenceScore,
+            bankAmount: ledgerDoc.amount,
+            deductionsApplied: ledgerDoc.deductionsApplied,
+            circuitBreakerResult: {
+              passed: circuitBreakerResult.passed,
+              equation: circuitBreakerResult.equation,
+              difference: circuitBreakerResult.difference,
+              reason: circuitBreakerResult.reason,
+            },
             batchId,
             dagNodes,
-            resolvedTier: isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION',
-            circuitBreakerResult,
-            confidence: matchResult?.confidence || (isReconciled ? 0.95 : candidateInvoice ? 0.35 : 0.18),
             ragCacheHit,
             totalDurationMs: performance.now() - totalStart,
             rawNarration: ledgerDoc.narration,
@@ -508,6 +507,8 @@ export class ReconciliationEngine {
         { session }
       );
       createdEvent = newEvent;
+      ledgerDoc.dagNodes = dagNodes;
+      await ledgerDoc.save({ session });
     });
 
     const totalDuration = performance.now() - totalStart;
@@ -565,7 +566,7 @@ export class ReconciliationEngine {
   }
 
   /**
-   * Process a batch of bank transactions with real-time SSE progress streaming
+   * Process a batch of bank transactions with real-time SSE progress streaming and In-Memory Pre-fetching
    */
   static async processBatch(transactions, batchId = `BATCH-${Date.now()}`, options = {}) {
     const batchStart = performance.now();
@@ -580,6 +581,24 @@ export class ReconciliationEngine {
       startedAt: new Date().toISOString(),
     });
 
+    // 1. High-Performance Pre-fetching: Load open invoices & active rules into in-memory index
+    const [openInvoicesDocs, activeRulesDocs] = await Promise.all([
+      Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean(),
+      RuleCache.find({ isActive: true }).lean(),
+    ]);
+
+    const invoiceByNumber = new Map();
+    for (const inv of openInvoicesDocs) {
+      invoiceByNumber.set(inv.invoiceNumber.toUpperCase(), inv);
+      invoiceByNumber.set(inv.invoiceNumber.toUpperCase().replace(/[^A-Z0-9]/g, ''), inv);
+    }
+
+    const context = {
+      allInvoices: openInvoicesDocs,
+      invoiceByNumber,
+      activeRules: activeRulesDocs,
+    };
+
     const results = [];
     let processedCount = 0;
     let matchedCount = 0;
@@ -592,7 +611,7 @@ export class ReconciliationEngine {
 
     for (const txn of transactions) {
       try {
-        const result = await this.processTransaction(txn, batchId, options);
+        const result = await this.processTransaction(txn, batchId, options, context);
         results.push(result);
         processedCount++;
 

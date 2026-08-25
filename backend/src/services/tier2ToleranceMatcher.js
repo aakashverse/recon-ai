@@ -22,11 +22,8 @@ const COMMON_BANK_CHARGES = [15, 25, 50, 100, 118, 150, 177, 200, 236, 250, 295,
 
 /**
  * Tier 2: Deterministic Tolerance, Explainable-Delta & Bounded Split-Match Engine (<5ms)
- * Evaluates:
- * 1. Explainable Arithmetic Deltas: Standard Statutory TDS, Flat Bank/PG Fees, GST Rounding (+-₹1)
- * 2. Bounded Split-Match: 1 Bank Deposit settling 2 to 4 open invoices for a vendor
  */
-export async function matchTier2(bankTxn) {
+export async function matchTier2(bankTxn, context = {}) {
   const startTime = performance.now();
   const rawNarration = (bankTxn.narration || '').trim();
   const bankAmount = Number(bankTxn.amount);
@@ -37,227 +34,125 @@ export async function matchTier2(bankTxn) {
 
   if (invoiceMatch) {
     const invNumber = invoiceMatch[1].toUpperCase();
-    explicitInvoice = await Invoice.findOne({
-      invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
-      status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-    }).lean();
-  }
-
-  // If narration matches known historical vendor rule keywords (INFOSYS, TCS, WIPRO, SWIGGY, ZOMATO, RELIANCE, AMAZON),
-  // yield to Tier 3 Rule Cache so learned rules take precedence
-  const ruleKeywords = ['INFOSYS', 'TCS', 'TATA CONSULTANCY', 'WIPRO', 'SWIGGY', 'ZOMATO', 'RELIANCE', 'AMAZON'];
-  const hasRuleVendor = ruleKeywords.some((k) => rawNarration.toUpperCase().includes(k));
-  if (hasRuleVendor && !rawNarration.includes('194') && !rawNarration.includes('206')) {
-    return {
-      matched: false,
-      tier: 'TIER_2',
-      durationMs: performance.now() - startTime,
-      reason: 'Narration matches known historical vendor pattern rule, yielding to Tier 3 Rule Cache',
-    };
-  }
-
-  // Fetch all open unpaid invoices to evaluate candidate deltas & split matches
-  const openInvoices = await Invoice.find({
-    status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-  }).lean();
-
-  if (!openInvoices.length) {
-    return {
-      matched: false,
-      tier: 'TIER_2',
-      durationMs: performance.now() - startTime,
-      reason: 'No open unpaid invoices available in ledger',
-    };
-  }
-
-  // -------------------------------------------------------------------------
-  // Part A: Explainable Delta Engine (Single Invoice with Statutory Deductions)
-  // -------------------------------------------------------------------------
-  let candidateList = [];
-  if (explicitInvoice) {
-    candidateList = [explicitInvoice];
-  } else if (rawNarration) {
-    const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
-    for (const inv of openInvoices) {
-      const cleanVendor = (inv.customerName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (cleanVendor && cleanVendor.length > 3 && (cleanNarration.includes(cleanVendor) || cleanVendor.includes(cleanNarration))) {
-        candidateList.push(inv);
-      }
+    if (context.invoiceByNumber) {
+      explicitInvoice = context.invoiceByNumber.get(invNumber) || null;
+      if (explicitInvoice && explicitInvoice.status === 'PAID') explicitInvoice = null;
+    } else {
+      explicitInvoice = await Invoice.findOne({
+        invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
+        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+      }).lean();
     }
   }
 
-  // If narration explicitly mentions TDS, deduction, or fee keywords, allow searching open invoices
-  if (!candidateList.length && (rawNarration.includes('TDS') || rawNarration.includes('194') || rawNarration.includes('206') || rawNarration.includes('FEE') || rawNarration.includes('LESS') || rawNarration.includes('ROUND'))) {
-    candidateList = openInvoices;
-  }
+  // Fetch open invoices (using in-memory cache if provided)
+  const openInvoicesRaw = context.allInvoices || (await Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean());
+  const openInvoices = openInvoicesRaw.filter((i) => i.status !== 'PAID');
 
-  for (const inv of candidateList) {
-    const gross = Number(inv.totalAmount);
-    const base = Number(inv.baseAmount || (gross / 1.18).toFixed(2));
-    const delta = Number((gross - bankAmount).toFixed(2));
-
-    // If delta is negative, bank amount is larger than invoice gross (unless handling fee refund)
-    if (delta <= 0) continue;
-
-    // Check 1: Pure GST / Cash Rounding Tolerance (<= ₹1.00)
-    if (Math.abs(delta) <= 1.05) {
+  // 2. Evaluate Explicit Invoice match first
+  if (explicitInvoice) {
+    const match = evaluateInvoiceDelta(explicitInvoice, bankAmount, rawNarration);
+    if (match.isMatch) {
       const durationMs = performance.now() - startTime;
       return {
         matched: true,
         tier: 'TIER_2',
-        invoice: inv,
-        confidence: 0.94,
+        invoice: explicitInvoice,
+        confidence: match.confidence,
+        deductions: match.deductions,
+        durationMs,
+        matchType: match.matchType,
+      };
+    }
+    // If explicit single invoice did not match, check bounded split matching before giving up
+    const splitCandidates = findBoundedSplitMatch(openInvoices, bankAmount, rawNarration, context);
+    if (splitCandidates && splitCandidates.invoices.length >= 2) {
+      const totalGross = splitCandidates.invoices.reduce((s, i) => s + i.totalAmount, 0);
+      const durationMs = performance.now() - startTime;
+      return {
+        matched: true,
+        tier: 'TIER_2',
+        invoice: splitCandidates.invoices[0],
+        splitInvoices: splitCandidates.invoices.map((i) => ({
+          invoiceId: i._id,
+          invoiceNumber: i.invoiceNumber,
+          amount: i.totalAmount,
+        })),
+        confidence: 0.90,
         deductions: {
           tdsAmount: 0,
           tdsRate: 0,
           tdsSection: 'NONE',
           bankCharges: 0,
           discount: 0,
-          gstRounding: delta,
-          totalDeductions: delta,
+          gstRounding: Number((totalGross - bankAmount).toFixed(2)),
+          totalDeductions: Number((totalGross - bankAmount).toFixed(2)),
         },
         durationMs,
-        matchType: 'EXPLAINABLE_DELTA_GST_ROUNDING',
-        explanation: `Arithmetic delta of ₹${delta} matches standard GST/cash fractional rounding (<= ₹1).`,
+        matchType: 'MULTI_INVOICE_SPLIT_MATCH',
       };
     }
 
-    // Check 2: Standard Statutory TDS Rates (evaluated on Gross and on Taxable Base)
-    for (const tds of KNOWN_TDS_RATES) {
-      const tdsOnGross = Number(((gross * tds.rate) / 100).toFixed(2));
-      const tdsOnBase = Number(((base * tds.rate) / 100).toFixed(2));
-
-      // 2a. Exact match on Gross TDS
-      if (Math.abs(delta - tdsOnGross) <= 0.50) {
-        const durationMs = performance.now() - startTime;
-        return {
-          matched: true,
-          tier: 'TIER_2',
-          invoice: inv,
-          confidence: 0.95,
-          deductions: {
-            tdsAmount: tdsOnGross,
-            tdsRate: tds.rate,
-            tdsSection: tds.section,
-            bankCharges: 0,
-            discount: 0,
-            gstRounding: Number((delta - tdsOnGross).toFixed(2)),
-            totalDeductions: delta,
-          },
-          durationMs,
-          matchType: `EXPLAINABLE_DELTA_TDS_${tds.section}_GROSS`,
-          explanation: `Arithmetic delta of ₹${delta} matches Section ${tds.section} TDS (${tds.rate}% on Gross ₹${gross}).`,
-        };
-      }
-
-      // 2b. Exact match on Taxable Base TDS (CBDT Circular 23/2017)
-      if (Math.abs(delta - tdsOnBase) <= 0.50) {
-        const durationMs = performance.now() - startTime;
-        return {
-          matched: true,
-          tier: 'TIER_2',
-          invoice: inv,
-          confidence: 0.93,
-          deductions: {
-            tdsAmount: tdsOnBase,
-            tdsRate: tds.rate,
-            tdsSection: tds.section,
-            bankCharges: 0,
-            discount: 0,
-            gstRounding: Number((delta - tdsOnBase).toFixed(2)),
-            totalDeductions: delta,
-          },
-          durationMs,
-          matchType: `EXPLAINABLE_DELTA_TDS_${tds.section}_BASE`,
-          explanation: `Arithmetic delta of ₹${delta} matches Section ${tds.section} TDS (${tds.rate}% on Taxable Base ₹${base}, CBDT Circ 23/2017).`,
-        };
-      }
-
-      // 2c. Combined: TDS + Flat Bank/PG Charge (<= ₹500)
-      for (const fee of COMMON_BANK_CHARGES) {
-        const totalExpectedDeductionGross = tdsOnGross + fee;
-        if (Math.abs(delta - totalExpectedDeductionGross) <= 0.50) {
-          const durationMs = performance.now() - startTime;
-          return {
-            matched: true,
-            tier: 'TIER_2',
-            invoice: inv,
-            confidence: 0.91,
-            deductions: {
-              tdsAmount: tdsOnGross,
-              tdsRate: tds.rate,
-              tdsSection: tds.section,
-              bankCharges: fee,
-              discount: 0,
-              gstRounding: Number((delta - totalExpectedDeductionGross).toFixed(2)),
-              totalDeductions: delta,
-            },
-            durationMs,
-            matchType: `EXPLAINABLE_DELTA_TDS_PLUS_PG_FEE`,
-            explanation: `Arithmetic delta matches Section ${tds.section} TDS (${tds.rate}%) + Flat PG Surcharge (₹${fee}).`,
-          };
-        }
-      }
-    }
-
-    // Check 3: Pure Flat Bank / PG Charge (<= ₹500) without TDS
-    if (delta <= 500 && (COMMON_BANK_CHARGES.includes(Math.round(delta)) || delta <= 100)) {
-      const durationMs = performance.now() - startTime;
-      return {
-        matched: true,
-        tier: 'TIER_2',
-        invoice: inv,
-        confidence: 0.89,
-        deductions: {
-          tdsAmount: 0,
-          tdsRate: 0,
-          tdsSection: 'NONE',
-          bankCharges: delta,
-          discount: 0,
-          gstRounding: 0,
-          totalDeductions: delta,
-        },
-        durationMs,
-        matchType: 'EXPLAINABLE_DELTA_FLAT_BANK_FEE',
-        explanation: `Arithmetic delta of ₹${delta} matches standard flat gateway/wire processing charge (<= ₹500).`,
-      };
-    }
+    const durationMs = performance.now() - startTime;
+    return {
+      matched: false,
+      tier: 'TIER_2',
+      invoice: explicitInvoice,
+      durationMs,
+      reason: `Invoice ${explicitInvoice.invoiceNumber} variance (Gross ₹${explicitInvoice.totalAmount} vs Bank ₹${bankAmount}) does not match standard statutory tables. Passing to Tier 3.`,
+    };
   }
 
-  // -------------------------------------------------------------------------
-  // Part B: Bounded Split-Match Engine (1 Bank Credit -> 2 to 4 Invoices)
-  // -------------------------------------------------------------------------
-  // Group open invoices by vendor if vendor token is present, else evaluate all candidates
-  const splitCandidates = findBoundedSplitMatch(openInvoices, bankAmount, rawNarration);
-
+  // 3. Bounded Split-Matching (1 Bank Deposit settling 2 open invoices)
+  const splitCandidates = findBoundedSplitMatch(openInvoices, bankAmount, rawNarration, context);
   if (splitCandidates && splitCandidates.invoices.length >= 2) {
-    const primaryInvoice = splitCandidates.invoices[0];
-    const totalSplitGross = splitCandidates.invoices.reduce((sum, i) => sum + Number(i.totalAmount), 0);
+    const totalGross = splitCandidates.invoices.reduce((s, i) => s + i.totalAmount, 0);
     const durationMs = performance.now() - startTime;
-
     return {
       matched: true,
       tier: 'TIER_2',
-      invoice: primaryInvoice,
+      invoice: splitCandidates.invoices[0],
       splitInvoices: splitCandidates.invoices.map((i) => ({
         invoiceId: i._id,
         invoiceNumber: i.invoiceNumber,
-        amount: Number(i.totalAmount),
+        amount: i.totalAmount,
       })),
-      confidence: splitCandidates.invoices.length === 2 ? 0.90 : splitCandidates.invoices.length === 3 ? 0.86 : 0.83,
+      confidence: 0.90,
       deductions: {
         tdsAmount: 0,
         tdsRate: 0,
         tdsSection: 'NONE',
         bankCharges: 0,
         discount: 0,
-        gstRounding: Number((totalSplitGross - bankAmount).toFixed(2)),
-        totalDeductions: Number((totalSplitGross - bankAmount).toFixed(2)),
+        gstRounding: Number((totalGross - bankAmount).toFixed(2)),
+        totalDeductions: Number((totalGross - bankAmount).toFixed(2)),
       },
       durationMs,
-      matchType: `BOUNDED_SPLIT_MATCH_${splitCandidates.invoices.length}_INVOICES`,
-      explanation: `Single bank credit of ₹${bankAmount} matches sum of ${splitCandidates.invoices.length} open invoices (${splitCandidates.invoices.map((i) => i.invoiceNumber).join(' + ')} = ₹${totalSplitGross}).`,
+      matchType: 'MULTI_INVOICE_SPLIT_MATCH',
     };
+  }
+
+  // 4. If NO explicit invoice was found, scan open invoices whose customer name matches the narration
+  if (rawNarration) {
+    const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const inv of openInvoices) {
+      const cleanVendor = (inv.customerName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanVendor && cleanVendor.length > 3 && (cleanNarration.includes(cleanVendor) || cleanVendor.includes(cleanNarration))) {
+        const match = evaluateInvoiceDelta(inv, bankAmount, rawNarration);
+        if (match.isMatch) {
+          const durationMs = performance.now() - startTime;
+          return {
+            matched: true,
+            tier: 'TIER_2',
+            invoice: inv,
+            confidence: match.confidence,
+            deductions: match.deductions,
+            durationMs,
+            matchType: match.matchType,
+          };
+        }
+      }
+    }
   }
 
   const durationMs = performance.now() - startTime;
@@ -265,18 +160,157 @@ export async function matchTier2(bankTxn) {
     matched: false,
     tier: 'TIER_2',
     durationMs,
-    reason: 'Delta does not match known statutory TDS rates, bank charge brackets, or bounded split combinations',
+    reason: 'No statutory tolerance delta or bounded split match resolved. Passing to Tier 3.',
   };
 }
 
 /**
- * Early-pruned combination search for 2 to 4 invoice split matches
+ * Evaluates whether an invoice matches the received bank amount through explainable arithmetic deltas
  */
-function findBoundedSplitMatch(invoices, targetAmount, narration) {
+function evaluateInvoiceDelta(inv, bankAmount, narration = '') {
+  const gross = Number(inv.totalAmount);
+  const base = Number(inv.baseAmount || inv.totalAmount / 1.18);
+  const variance = gross - bankAmount;
+
+  if (variance < -1.05) {
+    return { isMatch: false };
+  }
+
+  // Case A: Exact Match with +/- ₹1 GST Rounding
+  if (Math.abs(variance) <= 1.05) {
+    return {
+      isMatch: true,
+      confidence: 0.98,
+      matchType: 'GST_ROUNDING_EXACT',
+      deductions: {
+        tdsAmount: 0,
+        tdsRate: 0,
+        tdsSection: 'NONE',
+        bankCharges: 0,
+        discount: 0,
+        gstRounding: Number(variance.toFixed(2)),
+        totalDeductions: Number(variance.toFixed(2)),
+      },
+    };
+  }
+
+  // Case B: Known Statutory TDS Rates on Gross Amount
+  for (const { rate, section } of KNOWN_TDS_RATES) {
+    const expectedTds = (gross * rate) / 100;
+    const netExpected = gross - expectedTds;
+    const diff = Math.abs(netExpected - bankAmount);
+
+    if (diff <= 1.05) {
+      return {
+        isMatch: true,
+        confidence: 0.95,
+        matchType: `STATUTORY_TDS_GROSS_${section}`,
+        deductions: {
+          tdsAmount: Number(expectedTds.toFixed(2)),
+          tdsRate: rate,
+          tdsSection: section,
+          bankCharges: 0,
+          discount: 0,
+          gstRounding: Number(diff.toFixed(2)),
+          totalDeductions: Number(expectedTds.toFixed(2)),
+        },
+      };
+    }
+  }
+
+  // Case C: CBDT Circular 23/2017 — TDS deducted strictly on Base Amount (excluding GST)
+  for (const { rate, section } of KNOWN_TDS_RATES) {
+    const expectedTdsOnBase = (base * rate) / 100;
+    const netExpected = gross - expectedTdsOnBase;
+    const diff = Math.abs(netExpected - bankAmount);
+
+    if (diff <= 1.05) {
+      return {
+        isMatch: true,
+        confidence: 0.95,
+        matchType: `STATUTORY_TDS_BASE_${section}_CBDT_CIRCULAR_23`,
+        deductions: {
+          tdsAmount: Number(expectedTdsOnBase.toFixed(2)),
+          tdsRate: rate,
+          tdsSection: section,
+          bankCharges: 0,
+          discount: 0,
+          gstRounding: Number(diff.toFixed(2)),
+          totalDeductions: Number(expectedTdsOnBase.toFixed(2)),
+        },
+      };
+    }
+  }
+
+  // Case D: Flat Gateway / Wire Processing Fee Surcharge
+  for (const fee of COMMON_BANK_CHARGES) {
+    const diff = Math.abs(gross - fee - bankAmount);
+    if (diff <= 1.05) {
+      return {
+        isMatch: true,
+        confidence: 0.89,
+        matchType: 'PAYMENT_GATEWAY_FLAT_FEE',
+        deductions: {
+          tdsAmount: 0,
+          tdsRate: 0,
+          tdsSection: 'NONE',
+          bankCharges: fee,
+          discount: 0,
+          gstRounding: Number(diff.toFixed(2)),
+          totalDeductions: fee,
+        },
+      };
+    }
+  }
+
+  // Case E: Statutory TDS + Gateway Fee Combo
+  for (const { rate, section } of KNOWN_TDS_RATES) {
+    const expectedTds = (gross * rate) / 100;
+    for (const fee of [15, 25, 50, 100, 150, 200]) {
+      const net = gross - expectedTds - fee;
+      if (Math.abs(net - bankAmount) <= 1.05) {
+        return {
+          isMatch: true,
+          confidence: 0.92,
+          matchType: `TDS_${section}_PLUS_GATEWAY_FEE`,
+          deductions: {
+            tdsAmount: Number(expectedTds.toFixed(2)),
+            tdsRate: rate,
+            tdsSection: section,
+            bankCharges: fee,
+            discount: 0,
+            gstRounding: 0,
+            totalDeductions: Number((expectedTds + fee).toFixed(2)),
+          },
+        };
+      }
+    }
+  }
+
+  return { isMatch: false };
+}
+
+/**
+ * Fast, deterministic 2-way split-match search with explicit split intent
+ */
+function findBoundedSplitMatch(invoices, targetAmount, narration, context = {}) {
   if (invoices.length < 2) return null;
 
   const upperNarration = (narration || '').toUpperCase();
-  const invMatches = upperNarration.match(/\bINV[-_]?[A-Z0-9]+/gi) || [];
+  const invMatches = upperNarration.match(/\bINV[-_]?[0-9]{4}[-_]?[0-9]+\b/gi) || [];
+
+  // If specific invoices are named in narration (e.g. INV-2024-1008 and INV-2024-1009)
+  if (invMatches.length >= 2) {
+    const cleanMatches = invMatches.map((m) => m.replace(/[-_]+/g, '-').toUpperCase());
+    const matchedInvs = invoices.filter((i) => cleanMatches.includes(i.invoiceNumber.toUpperCase()));
+    if (matchedInvs.length >= 2) {
+      const sum = matchedInvs.reduce((s, i) => s + i.totalAmount, 0);
+      if (Math.abs(sum - targetAmount) <= 1.05) {
+        return { invoices: matchedInvs.slice(0, 2) };
+      }
+    }
+  }
+
   const hasSplitIntent =
     upperNarration.includes('SPLIT') ||
     upperNarration.includes('MULTI') ||
@@ -285,7 +319,6 @@ function findBoundedSplitMatch(invoices, targetAmount, narration) {
     upperNarration.includes('&') ||
     invMatches.length >= 2;
 
-  // Filter or prioritize invoices matching vendor keywords in narration
   const cleanNarration = (narration || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const sorted = [...invoices].sort((a, b) => {
     const aMatch = cleanNarration.includes((a.customerName || '').toLowerCase().replace(/[^a-z0-9]/g, ''));
@@ -295,9 +328,8 @@ function findBoundedSplitMatch(invoices, targetAmount, narration) {
     return a.totalAmount - b.totalAmount;
   });
 
-  const maxItems = Math.min(sorted.length, 25); // Bound search space for guaranteed <5ms latency
+  const maxItems = Math.min(sorted.length, 30);
 
-  // 1. Check 2-Way Combinations
   for (let i = 0; i < maxItems; i++) {
     const a = sorted[i];
     if (a.totalAmount > targetAmount + 1) break;
@@ -307,66 +339,12 @@ function findBoundedSplitMatch(invoices, targetAmount, narration) {
       const sum = a.totalAmount + b.totalAmount;
 
       if (Math.abs(sum - targetAmount) <= 1.05) {
-        // Require split intent or same customer
-        const sameCustomer = (a.customerName && b.customerName && a.customerName === b.customerName);
+        const sameCustomer = a.customerName && b.customerName && a.customerName === b.customerName;
         if (hasSplitIntent || sameCustomer) {
           return { invoices: [a, b] };
         }
       }
       if (sum > targetAmount + 1) break;
-    }
-  }
-
-  // 2. Check 3-Way Combinations
-  for (let i = 0; i < maxItems; i++) {
-    const a = sorted[i];
-    if (a.totalAmount > targetAmount + 1) break;
-
-    for (let j = i + 1; j < maxItems; j++) {
-      const b = sorted[j];
-      if (a.totalAmount + b.totalAmount > targetAmount + 1) break;
-
-      for (let k = j + 1; k < maxItems; k++) {
-        const c = sorted[k];
-        const sum = a.totalAmount + b.totalAmount + c.totalAmount;
-
-        if (Math.abs(sum - targetAmount) <= 1.05) {
-          const sameCustomer = (a.customerName && b.customerName && c.customerName && a.customerName === b.customerName && b.customerName === c.customerName);
-          if (hasSplitIntent || sameCustomer) {
-            return { invoices: [a, b, c] };
-          }
-        }
-        if (sum > targetAmount + 1) break;
-      }
-    }
-  }
-
-  // 3. Check 4-Way Combinations
-  for (let i = 0; i < maxItems; i++) {
-    const a = sorted[i];
-    if (a.totalAmount > targetAmount + 1) break;
-
-    for (let j = i + 1; j < maxItems; j++) {
-      const b = sorted[j];
-      if (a.totalAmount + b.totalAmount > targetAmount + 1) break;
-
-      for (let k = j + 1; k < maxItems; k++) {
-        const c = sorted[k];
-        if (a.totalAmount + b.totalAmount + c.totalAmount > targetAmount + 1) break;
-
-        for (let l = k + 1; l < maxItems; l++) {
-          const d = sorted[l];
-          const sum = a.totalAmount + b.totalAmount + c.totalAmount + d.totalAmount;
-
-          if (Math.abs(sum - targetAmount) <= 1.05) {
-            const sameCustomer = (a.customerName && b.customerName && c.customerName && d.customerName && a.customerName === b.customerName && b.customerName === c.customerName && c.customerName === d.customerName);
-            if (hasSplitIntent || sameCustomer) {
-              return { invoices: [a, b, c, d] };
-            }
-          }
-          if (sum > targetAmount + 1) break;
-        }
-      }
     }
   }
 
