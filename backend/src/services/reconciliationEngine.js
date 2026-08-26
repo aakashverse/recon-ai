@@ -1,8 +1,7 @@
 import { generateIdempotencyHash, calculateEventHash, GENESIS_HASH } from '../utils/hasher.js';
 import { matchTier1 } from './tier1Matcher.js';
 import { matchTier2 } from './tier2ToleranceMatcher.js';
-import { matchTier3 } from './tier3RuleCacheMatcher.js';
-import { matchTier4 } from './tier4GenAIPool.js';
+import { matchTier3 } from './tier3GenAIPool.js';
 import { validateCircuitBreaker } from './circuitBreaker.js';
 import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
@@ -103,7 +102,6 @@ export class ReconciliationEngine {
     let tier1Duration = 0;
     let tier2Duration = 0;
     let tier3Duration = 0;
-    let tier4Duration = 0;
     let ragCacheHit = false;
 
     // -----------------------------------------------------------------------
@@ -123,9 +121,8 @@ export class ReconciliationEngine {
         durationMs: t1Res.durationMs,
         outputData: { matchType: t1Res.matchType, invoiceNumber: t1Res.invoice?.invoiceNumber },
       });
-      dagNodes.push({ nodeKey: 'STEP_TIER_2', name: 'Tier 2: Tolerance & Split Matcher', tier: 'TIER_2', status: 'BYPASSED', durationMs: 0 });
-      dagNodes.push({ nodeKey: 'STEP_TIER_3', name: 'Tier 3: Self-Healing Rule Cache', tier: 'TIER_3', status: 'BYPASSED', durationMs: 0 });
-      dagNodes.push({ nodeKey: 'STEP_TIER_4', name: 'Tier 4: GenAI & RAG Worker Pool', tier: 'TIER_4', status: 'BYPASSED', durationMs: 0 });
+      dagNodes.push({ nodeKey: 'STEP_TIER_2', name: 'Tier 2: Rules, Tolerance & Split Engine', tier: 'TIER_2', status: 'BYPASSED', durationMs: 0 });
+      dagNodes.push({ nodeKey: 'STEP_TIER_3', name: 'Tier 3: GenAI Worker Pool & RAG Cache', tier: 'TIER_3', status: 'BYPASSED', durationMs: 0 });
     } else {
       dagNodes.push({
         nodeKey: 'STEP_TIER_1',
@@ -137,7 +134,7 @@ export class ReconciliationEngine {
       });
 
       // ---------------------------------------------------------------------
-      // 3. Tier 2: Tolerance, Explainable-Delta & Bounded Split-Match (<5ms)
+      // 3. Tier 2: Rules, Tolerance, Explainable-Delta & Split-Match (<5ms)
       // ---------------------------------------------------------------------
       const t2Res = await matchTier2(ledgerDoc, context);
       tier2Duration = t2Res.durationMs;
@@ -147,131 +144,98 @@ export class ReconciliationEngine {
         resolvedTier = 'TIER_2';
         dagNodes.push({
           nodeKey: 'STEP_TIER_2',
-          name: 'Tier 2: Tolerance & Split Matcher',
+          name: 'Tier 2: Rules, Tolerance & Split Engine',
           tier: 'TIER_2',
           status: 'SUCCESS',
           durationMs: t2Res.durationMs,
           outputData: {
             matchType: t2Res.matchType,
+            ruleApplied: t2Res.ruleApplied,
             invoiceNumber: t2Res.invoice?.invoiceNumber,
             splitCount: t2Res.splitInvoices?.length || 1,
           },
         });
-        dagNodes.push({ nodeKey: 'STEP_TIER_3', name: 'Tier 3: Self-Healing Rule Cache', tier: 'TIER_3', status: 'BYPASSED', durationMs: 0 });
-        dagNodes.push({ nodeKey: 'STEP_TIER_4', name: 'Tier 4: GenAI & RAG Worker Pool', tier: 'TIER_4', status: 'BYPASSED', durationMs: 0 });
+        dagNodes.push({ nodeKey: 'STEP_TIER_3', name: 'Tier 3: GenAI Worker Pool & RAG Cache', tier: 'TIER_3', status: 'BYPASSED', durationMs: 0 });
       } else {
         dagNodes.push({
           nodeKey: 'STEP_TIER_2',
-          name: 'Tier 2: Tolerance & Split Matcher',
+          name: 'Tier 2: Rules, Tolerance & Split Engine',
           tier: 'TIER_2',
           status: 'FAILED',
           durationMs: t2Res.durationMs,
-          outputData: { reason: t2Res.reason || 'Delta not explainable by standard statutory tables' },
+          outputData: { reason: t2Res.reason || 'Delta not explainable by statutory tables, learned rules, or split match' },
         });
 
         // -------------------------------------------------------------------
-        // 4. Tier 3: Self-Healing Rule Cache (<10ms)
+        // 4. Cost Circuit Breaker Check before Tier 3 GenAI Call
         // -------------------------------------------------------------------
-        const t3Res = await matchTier3(ledgerDoc, context);
-        tier3Duration = t3Res.durationMs;
+        const currentBatchCost = batchCostTracker.get(batchId) || 0;
+        const maxBatchCost = options.costCapUsd || options.maxGenAICost || (process.env.GENAI_COST_CAP_USD ? parseFloat(process.env.GENAI_COST_CAP_USD) : 0.50);
 
-        if (t3Res.matched) {
-          matchResult = t3Res;
-          resolvedTier = 'TIER_3';
+        if (currentBatchCost >= maxBatchCost) {
           dagNodes.push({
             nodeKey: 'STEP_TIER_3',
-            name: 'Tier 3: Self-Healing Rule Cache',
+            name: 'Tier 3: GenAI Worker Pool & RAG Cache',
             tier: 'TIER_3',
-            status: 'SUCCESS',
-            durationMs: t3Res.durationMs,
-            outputData: {
-              matchType: t3Res.matchType,
-              ruleApplied: t3Res.ruleApplied,
-              invoiceNumber: t3Res.invoice?.invoiceNumber,
+            status: 'BYPASSED',
+            durationMs: 0.1,
+            outputData: { costCapTriggered: true, currentBatchCost, maxBatchCost, reason: 'COST_CAP_TRIGGERED' },
+          });
+
+          matchResult = {
+            matched: false,
+            tier: 'TIER_3',
+            confidence: 0,
+            reason: 'COST_CAP_TRIGGERED',
+            discrepancyDetails: {
+              reason: `Cumulative GenAI spend cap ($${maxBatchCost.toFixed(2)}) reached ($${currentBatchCost.toFixed(3)} spent). Routed to Outbox to prevent budget overrun.`,
+              discrepancyType: 'COST_CAP_TRIGGERED',
+              discrepancyAmount: ledgerDoc.amount,
             },
-          });
-          dagNodes.push({ nodeKey: 'STEP_TIER_4', name: 'Tier 4: GenAI & RAG Worker Pool', tier: 'TIER_4', status: 'BYPASSED', durationMs: 0 });
+          };
+          resolvedTier = 'OUTBOX_EXCEPTION';
         } else {
-          dagNodes.push({
-            nodeKey: 'STEP_TIER_3',
-            name: 'Tier 3: Self-Healing Rule Cache',
-            tier: 'TIER_3',
-            status: 'FAILED',
-            durationMs: t3Res.durationMs,
-            outputData: { reason: 'No matching historical vendor pattern rule' },
+          // -----------------------------------------------------------------
+          // 5. Tier 3: Concurrency-Controlled GenAI Worker Pool with RAG Cache
+          // -----------------------------------------------------------------
+          sseManager.broadcast('txn:tier3_processing', {
+            bankTxnId: ledgerDoc.bankTxnId,
           });
 
-          // -----------------------------------------------------------------
-          // 5. Cost Circuit Breaker Check before Tier 4 GenAI Call
-          // -----------------------------------------------------------------
-          const currentBatchCost = batchCostTracker.get(batchId) || 0;
-          const maxBatchCost = options.costCapUsd || options.maxGenAICost || (process.env.GENAI_COST_CAP_USD ? parseFloat(process.env.GENAI_COST_CAP_USD) : 0.50);
+          const t3Res = await matchTier3(ledgerDoc, options, context);
+          tier3Duration = t3Res.durationMs;
+          ragCacheHit = Boolean(t3Res.ragCacheHit);
 
-          if (currentBatchCost >= maxBatchCost) {
+          const callCost = ragCacheHit ? 0.000 : 0.005;
+          batchCostTracker.set(batchId, currentBatchCost + callCost);
+
+          if (t3Res.matched) {
+            matchResult = t3Res;
+            resolvedTier = 'TIER_3';
             dagNodes.push({
-              nodeKey: 'STEP_TIER_4',
-              name: 'Tier 4: GenAI & RAG Worker Pool',
-              tier: 'TIER_4',
-              status: 'BYPASSED',
-              durationMs: 0.1,
-              outputData: { costCapTriggered: true, currentBatchCost, maxBatchCost, reason: 'COST_CAP_TRIGGERED' },
-            });
-
-            matchResult = {
-              matched: false,
-              tier: 'TIER_4',
-              confidence: 0,
-              reason: 'COST_CAP_TRIGGERED',
-              discrepancyDetails: {
-                reason: `Cumulative GenAI spend cap ($${maxBatchCost.toFixed(2)}) reached ($${currentBatchCost.toFixed(3)} spent). Routed to Outbox to prevent budget overrun.`,
-                discrepancyType: 'COST_CAP_TRIGGERED',
-                discrepancyAmount: ledgerDoc.amount,
+              nodeKey: 'STEP_TIER_3',
+              name: ragCacheHit ? 'Tier 3: RAG Fingerprint Cache Hit ($0.00)' : 'Tier 3: GenAI Worker Pool (Google Gemini)',
+              tier: 'TIER_3',
+              status: 'SUCCESS',
+              durationMs: t3Res.durationMs,
+              outputData: {
+                ragCacheHit,
+                matchType: t3Res.matchType,
+                invoiceNumber: t3Res.invoice?.invoiceNumber,
+                confidence: t3Res.confidence,
               },
-            };
-            resolvedTier = 'OUTBOX_EXCEPTION';
-          } else {
-            // ---------------------------------------------------------------
-            // 6. Tier 4: Concurrency-Controlled GenAI Worker Pool with RAG Cache
-            // ---------------------------------------------------------------
-            sseManager.broadcast('txn:tier4_processing', {
-              bankTxnId: ledgerDoc.bankTxnId,
             });
-
-            const t4Res = await matchTier4(ledgerDoc, options, context);
-            tier4Duration = t4Res.durationMs;
-            ragCacheHit = Boolean(t4Res.ragCacheHit);
-
-            const callCost = ragCacheHit ? 0.000 : 0.005;
-            batchCostTracker.set(batchId, currentBatchCost + callCost);
-
-            if (t4Res.matched) {
-              matchResult = t4Res;
-              resolvedTier = 'TIER_4';
-              dagNodes.push({
-                nodeKey: 'STEP_TIER_4',
-                name: ragCacheHit ? 'Tier 4: RAG Fingerprint Cache Hit ($0.00)' : 'Tier 4: GenAI Worker Pool (Gemini 1.5)',
-                tier: 'TIER_4',
-                status: 'SUCCESS',
-                durationMs: t4Res.durationMs,
-                outputData: {
-                  ragCacheHit,
-                  matchType: t4Res.matchType,
-                  invoiceNumber: t4Res.invoice?.invoiceNumber,
-                  confidence: t4Res.confidence,
-                },
-              });
-            } else {
-              matchResult = t4Res;
-              resolvedTier = 'OUTBOX_EXCEPTION';
-              dagNodes.push({
-                nodeKey: 'STEP_TIER_4',
-                name: 'Tier 4: GenAI Worker Pool',
-                tier: 'TIER_4',
-                status: 'FAILED',
-                durationMs: t4Res.durationMs,
-                outputData: { reason: t4Res.reason || 'GenAI pool unable to ground extraction to open invoice' },
-              });
-            }
+          } else {
+            matchResult = t3Res;
+            resolvedTier = 'OUTBOX_EXCEPTION';
+            dagNodes.push({
+              nodeKey: 'STEP_TIER_3',
+              name: 'Tier 3: GenAI Worker Pool',
+              tier: 'TIER_3',
+              status: 'FAILED',
+              durationMs: t3Res.durationMs,
+              outputData: { reason: t3Res.reason || 'GenAI pool unable to ground extraction to open invoice' },
+            });
           }
         }
       }
@@ -351,7 +315,6 @@ export class ReconciliationEngine {
           tier1DurationMs: Number(tier1Duration.toFixed(2)),
           tier2DurationMs: Number(tier2Duration.toFixed(2)),
           tier3DurationMs: Number(tier3Duration.toFixed(2)),
-          tier4DurationMs: Number(tier4Duration.toFixed(2)),
           circuitBreakerDurationMs: Number(cbDuration.toFixed(2)),
           totalDurationMs: Number((performance.now() - totalStart).toFixed(2)),
           ragCacheHit,
@@ -388,9 +351,7 @@ export class ReconciliationEngine {
                     ? 'TIER_1_EXACT'
                     : resolvedTier === 'TIER_2'
                     ? 'TIER_2_TOLERANCE'
-                    : resolvedTier === 'TIER_3'
-                    ? 'TIER_3_RULE'
-                    : 'TIER_4_GENAI',
+                    : 'TIER_3_GENAI',
               },
             },
             { session }
@@ -436,7 +397,6 @@ export class ReconciliationEngine {
           tier1DurationMs: Number(tier1Duration.toFixed(2)),
           tier2DurationMs: Number(tier2Duration.toFixed(2)),
           tier3DurationMs: Number(tier3Duration.toFixed(2)),
-          tier4DurationMs: Number(tier4Duration.toFixed(2)),
           circuitBreakerDurationMs: Number(cbDuration.toFixed(2)),
           totalDurationMs: Number((performance.now() - totalStart).toFixed(2)),
           ragCacheHit,
@@ -606,7 +566,6 @@ export class ReconciliationEngine {
     let tier1Count = 0;
     let tier2Count = 0;
     let tier3Count = 0;
-    let tier4Count = 0;
     let ragCacheHits = 0;
 
     for (const txn of transactions) {
@@ -619,9 +578,8 @@ export class ReconciliationEngine {
           matchedCount++;
           if (result.resolvedTier === 'TIER_1') tier1Count++;
           else if (result.resolvedTier === 'TIER_2') tier2Count++;
-          else if (result.resolvedTier === 'TIER_3') tier3Count++;
-          else if (result.resolvedTier === 'TIER_4') {
-            tier4Count++;
+          else if (result.resolvedTier === 'TIER_3') {
+            tier3Count++;
             if (result.ragCacheHit) ragCacheHits++;
           }
         } else {
@@ -639,12 +597,21 @@ export class ReconciliationEngine {
             tier1: tier1Count,
             tier2: tier2Count,
             tier3: tier3Count,
-            tier4: tier4Count,
           },
         });
       } catch (err) {
-        console.error(`[Batch Error] Txn ${txn.bankTxnId || txn.narration} failed:`, err);
+        console.error(`[Batch Error] Txn ${txn.bankTxnId || txn.narration} failed:`, err.message);
         exceptionCount++;
+        results.push({
+          isReconciled: false,
+          resolvedTier: 'OUTBOX_EXCEPTION',
+          totalDurationMs: 0,
+          circuitBreaker: {
+            passed: false,
+            discrepancyType: 'NETWORK_FAULT',
+            reason: `Batch processing exception: ${err.message}`,
+          },
+        });
       }
     }
 
@@ -662,7 +629,6 @@ export class ReconciliationEngine {
         tier1: tier1Count,
         tier2: tier2Count,
         tier3: tier3Count,
-        tier4: tier4Count,
       },
       ragCacheHits,
       genAICostUsd: Number(finalGenAICost.toFixed(3)),

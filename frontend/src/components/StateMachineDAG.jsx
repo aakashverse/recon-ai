@@ -12,12 +12,13 @@ import { X, CheckCircle, AlertTriangle, Clock, Zap, ArrowRight, ShieldAlert, Cpu
 
 // Custom DAG Node component
 function CustomDAGNode({ data }) {
-  const { title, subtitle, status, durationMs, tier, details } = data;
+  const { title, subtitle, status = 'PENDING', durationMs, tier, details } = data;
 
   const isSuccess = status === 'SUCCESS';
   const isBypassed = status === 'BYPASSED';
   const isFailed = status === 'FAILED';
   const isDiscrepancy = status === 'DISCREPANCY_DETECTED';
+  const isPending = status === 'PENDING';
 
   let borderColor = 'border-slate-700';
   let bgColor = 'bg-slate-900';
@@ -35,10 +36,14 @@ function CustomDAGNode({ data }) {
     borderColor = 'border-slate-800 border-dashed opacity-50';
     bgColor = 'bg-slate-950/60';
     badgeColor = 'bg-slate-800/60 text-slate-500';
+  } else if (isPending) {
+    borderColor = 'border-slate-800 border-dashed opacity-70';
+    bgColor = 'bg-slate-950/80';
+    badgeColor = 'bg-slate-800 text-slate-400';
   }
 
   return (
-    <div className={`w-[260px] rounded-xl border p-3.5 ${borderColor} ${bgColor} text-xs shadow-xl transition-all select-none`}>
+    <div className={`w-[270px] rounded-xl border p-3.5 ${borderColor} ${bgColor} text-xs shadow-xl transition-all select-none`}>
       <Handle type="target" position={Position.Top} className="!bg-razor-blue !w-2.5 !h-2.5" />
       <Handle type="target" id="left" position={Position.Left} className="!bg-slate-600 !w-2 !h-2" />
       
@@ -79,38 +84,43 @@ export function StateMachineDAG({ transaction, onClose }) {
   const metrics = transaction.executionMetrics || {};
   const cb = transaction.circuitBreaker || transaction.discrepancyDetails || {};
   const isMatched = transaction.reconciliationStatus === 'MATCHED';
+  const isException = transaction.reconciliationStatus === 'EXCEPTION';
+  const isUnprocessed = !isMatched && !isException;
   const tier = transaction.matchedTier;
-  const backendNodes = transaction.dagNodes || [];
+  const backendNodes = Array.isArray(transaction.dagNodes) ? transaction.dagNodes : [];
 
   // Map backend dagNodes by nodeKey for 100% faithful execution rendering
   const nodeMap = useMemo(() => {
     const map = {};
     for (const n of backendNodes) {
-      map[n.nodeKey] = n;
+      if (n && n.nodeKey) {
+        map[n.nodeKey] = n;
+      }
     }
     return map;
   }, [backendNodes]);
 
-  // Build DAG Graph dynamically with clean, non-overlapping coordinates across 4 Tiers
+  // Build DAG Graph dynamically with clean, non-overlapping coordinates across 3 Tiers
   const { nodes, edges } = useMemo(() => {
     const ingestNode = nodeMap['STEP_INGEST'];
     const t1Node = nodeMap['STEP_TIER_1'];
     const t2Node = nodeMap['STEP_TIER_2'];
     const t3Node = nodeMap['STEP_TIER_3'];
-    const t4Node = nodeMap['STEP_TIER_4'];
     const cbNode = nodeMap['STEP_CIRCUIT_BREAKER'];
     const outboxNode = nodeMap['STEP_OUTBOX'];
     const commitNode = nodeMap['STEP_COMMIT'];
+
+    const t2RuleName = t2Node?.outputData?.ruleApplied || (transaction.deductionsApplied?.ruleName);
 
     const graphNodes = [
       {
         id: '1',
         type: 'custom',
-        position: { x: 460, y: 20 },
+        position: { x: 380, y: 20 },
         data: {
           title: '1. Ingest & Idempotency Guard',
-          subtitle: `SHA-256 Hash: ${transaction.bankTxnId}`,
-          status: ingestNode?.status || 'SUCCESS',
+          subtitle: `SHA-256 Hash: ${transaction.bankTxnId || 'TXN-PENDING'}`,
+          status: ingestNode?.status || (isUnprocessed ? 'PENDING' : 'SUCCESS'),
           durationMs: ingestNode?.durationMs || 0.4,
           tier: 'Guard',
           details: `Amount: ₹${Number(transaction.amount || 0).toLocaleString('en-IN')} | UTR: ${transaction.utrNumber || 'N/A'}`,
@@ -119,79 +129,66 @@ export function StateMachineDAG({ transaction, onClose }) {
       {
         id: '2',
         type: 'custom',
-        position: { x: 20, y: 220 },
+        position: { x: 40, y: 220 },
         data: {
           title: '2. Tier 1: Deterministic Exact',
           subtitle: 'Exact Gross & UTR Match (<2ms)',
-          status: t1Node?.status || (tier === 'TIER_1' ? 'SUCCESS' : 'FAILED'),
-          durationMs: t1Node?.durationMs || metrics.tier1DurationMs || 0.5,
+          status: t1Node?.status || (tier === 'TIER_1' ? 'SUCCESS' : isUnprocessed ? 'PENDING' : 'FAILED'),
+          durationMs: t1Node?.durationMs || metrics.tier1DurationMs || (tier === 'TIER_1' ? 0.5 : 0),
           tier: 'Tier 1',
-          details: t1Node?.outputData?.reason || (tier === 'TIER_1' ? 'Exact gross invoice match found ($0 deductions)' : 'No exact gross match found, cascading to Tier 2'),
+          details: t1Node?.outputData?.reason || (tier === 'TIER_1' ? 'Exact gross invoice match found ($0 deductions)' : isUnprocessed ? 'Awaiting batch run' : 'No exact gross match found, cascading to Tier 2'),
         },
       },
       {
         id: '3',
         type: 'custom',
-        position: { x: 310, y: 220 },
+        position: { x: 380, y: 220 },
         data: {
-          title: '3. Tier 2: Tolerance & Split',
-          subtitle: 'Statutory TDS, Split-Match (<5ms)',
-          status: t2Node?.status || (tier === 'TIER_2' ? 'SUCCESS' : tier === 'TIER_1' ? 'BYPASSED' : 'FAILED'),
-          durationMs: t2Node?.durationMs || metrics.tier2DurationMs || (tier === 'TIER_1' ? 0 : 0.7),
+          title: '3. Tier 2: Rules, Tolerance & Split',
+          subtitle: 'Statutory TDS + Rules + Split (<5ms)',
+          status: t2Node?.status || (tier === 'TIER_2' ? 'SUCCESS' : tier === 'TIER_1' ? 'BYPASSED' : isUnprocessed ? 'PENDING' : 'FAILED'),
+          durationMs: t2Node?.durationMs || metrics.tier2DurationMs || (tier === 'TIER_2' ? 0.7 : 0),
           tier: 'Tier 2',
-          details: t2Node?.outputData?.reason || (tier === 'TIER_2' ? 'Explainable statutory TDS / split match verified' : tier === 'TIER_1' ? 'Bypassed (Resolved in Tier 1)' : 'Delta unexplained by standard tables, cascading to Tier 3'),
+          details: t2Node?.outputData?.reason || (tier === 'TIER_2' ? (t2RuleName ? `Matched Rule: ${t2RuleName}` : 'Explainable statutory TDS / split match verified') : tier === 'TIER_1' ? 'Bypassed (Resolved in Tier 1)' : isUnprocessed ? 'Awaiting batch run' : 'Delta unexplained, cascading to Tier 3 (GenAI)'),
         },
       },
       {
         id: '4',
         type: 'custom',
-        position: { x: 600, y: 220 },
+        position: { x: 720, y: 220 },
         data: {
-          title: '4. Tier 3: Rule Cache',
-          subtitle: 'Vendor Pattern Cache (<10ms)',
-          status: t3Node?.status || (tier === 'TIER_3' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'BYPASSED' : 'FAILED'),
-          durationMs: t3Node?.durationMs || metrics.tier3DurationMs || (tier === 'TIER_1' || tier === 'TIER_2' ? 0 : 0.1),
+          title: '4. Tier 3: GenAI & RAG Pool',
+          subtitle: 'Google Gemini Flash + RAG-First',
+          status: t3Node?.status || (tier === 'TIER_3' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'BYPASSED' : isUnprocessed ? 'PENDING' : 'FAILED'),
+          durationMs: t3Node?.durationMs || metrics.tier3DurationMs || (tier === 'TIER_3' ? 18.5 : 0.1),
           tier: 'Tier 3',
-          details: t3Node?.outputData?.reason || (tier === 'TIER_3' ? 'Matched learned vendor deduction rule' : (tier === 'TIER_1' || tier === 'TIER_2') ? 'Bypassed' : 'No matching historical vendor rule, cascading to Tier 4'),
+          details: t3Node?.outputData?.reason || (tier === 'TIER_3' ? (metrics.ragCacheHit ? '⚡ RAG Cache Hit: Reused verified pattern ($0 cost)' : 'Live Google Gemini AI structured entity extraction') : (tier === 'TIER_1' || tier === 'TIER_2') ? 'Bypassed (Resolved deterministically)' : isUnprocessed ? 'Awaiting batch run' : 'Unstructured narration could not be grounded to open ledger invoice'),
         },
       },
       {
         id: '5',
         type: 'custom',
-        position: { x: 890, y: 220 },
+        position: { x: 380, y: 440 },
         data: {
-          title: '5. Tier 4: GenAI & RAG Pool',
-          subtitle: 'Gemini Flash + RAG Cache (p-limit 5)',
-          status: t4Node?.status || (tier === 'TIER_4' ? 'SUCCESS' : (tier === 'TIER_1' || tier === 'TIER_2' || tier === 'TIER_3') ? 'BYPASSED' : 'FAILED'),
-          durationMs: t4Node?.durationMs || metrics.tier4DurationMs || (tier === 'TIER_4' ? 18.5 : 0.1),
-          tier: 'Tier 4',
-          details: t4Node?.outputData?.reason || (tier === 'TIER_4' ? (metrics.ragCacheHit ? '⚡ RAG Cache Hit: Reused verified pattern ($0 cost)' : 'Live Gemini AI structured parsing & reasoning') : (tier === 'TIER_1' || tier === 'TIER_2' || tier === 'TIER_3') ? 'Bypassed (Resolved deterministically)' : 'Unstructured narration could not be grounded to open ledger invoice'),
+          title: '5. Zero-Trust Circuit Breaker',
+          subtitle: 'Mathematical Equation Proof',
+          status: cbNode?.status || (isMatched ? 'SUCCESS' : isException ? 'DISCREPANCY_DETECTED' : 'PENDING'),
+          durationMs: cbNode?.durationMs || metrics.circuitBreakerDurationMs || 0.1,
+          tier: 'Circuit Breaker',
+          details: cbNode?.outputData?.equation || cb.equation || cb.mathEquation || (isMatched ? 'Gross - Deductions ≡ Bank Received [EXACT MATCH]' : isException ? 'Gross - Deductions ≠ Bank Received [DISCREPANCY DETECTED]' : 'Equation proof calculated at batch runtime'),
         },
       },
       {
         id: '6',
         type: 'custom',
-        position: { x: 460, y: 450 },
+        position: { x: 380, y: 640 },
         data: {
-          title: '6. Zero-Trust Circuit Breaker',
-          subtitle: 'Mathematical Equation Proof',
-          status: cbNode?.status || (isMatched ? 'SUCCESS' : 'DISCREPANCY_DETECTED'),
-          durationMs: cbNode?.durationMs || metrics.circuitBreakerDurationMs || 0.1,
-          tier: 'Circuit Breaker',
-          details: cbNode?.outputData?.equation || cb.equation || cb.mathEquation || (isMatched ? 'Gross - Deductions ≡ Bank Received [EXACT MATCH]' : 'Gross - Deductions ≠ Bank Received [DISCREPANCY DETECTED]'),
-        },
-      },
-      {
-        id: '7',
-        type: 'custom',
-        position: { x: 460, y: 670 },
-        data: {
-          title: isMatched ? '7. ACID Multi-Doc Commit (PAID)' : '7. Agentic Outbox Queue',
-          subtitle: isMatched ? 'Status: PAID • Reconciled' : 'Status: FLAGGED_FOR_HUMAN',
-          status: isMatched ? (commitNode?.status || 'SUCCESS') : (outboxNode?.status || 'DISCREPANCY_DETECTED'),
-          durationMs: (isMatched ? commitNode?.durationMs : outboxNode?.durationMs) || 2.1,
-          tier: isMatched ? 'Commit' : 'Outbox',
-          details: isMatched ? 'General ledger committed with cryptographic hash link.' : (outboxNode?.outputData?.whatsappDraft?.messageText ? 'Dispatched to WhatsApp / Email Discrepancy Action Queue.' : 'Discrepancy recorded in Outbox for accountant review.'),
+          title: isMatched ? '6. ACID Multi-Doc Commit (PAID)' : isException ? '6. Agentic Outbox Queue' : '6. General Ledger Commit',
+          subtitle: isMatched ? 'Status: PAID • Reconciled' : isException ? 'Status: FLAGGED_FOR_HUMAN' : 'Status: UNPROCESSED',
+          status: isMatched ? (commitNode?.status || 'SUCCESS') : isException ? (outboxNode?.status || 'DISCREPANCY_DETECTED') : 'PENDING',
+          durationMs: (isMatched ? commitNode?.durationMs : outboxNode?.durationMs) || (isUnprocessed ? 0 : 2.1),
+          tier: isMatched ? 'Commit' : isException ? 'Outbox' : 'Ledger',
+          details: isMatched ? 'General ledger committed with cryptographic hash link.' : isException ? (outboxNode?.outputData?.whatsappDraft?.messageText ? 'Dispatched to WhatsApp / Email Discrepancy Action Queue.' : 'Discrepancy recorded in Outbox for accountant review.') : 'Awaiting batch reconciliation execution.',
         },
       },
     ];
@@ -200,16 +197,14 @@ export function StateMachineDAG({ transaction, onClose }) {
       { id: 'e1-2', source: '1', target: '2', type: 'smoothstep', markerEnd: { type: MarkerType.ArrowClosed } },
       { id: 'e2-3', source: '2', target: '3', sourceHandle: 'right', targetHandle: 'left', type: 'smoothstep', style: { strokeDasharray: '4,4' }, markerEnd: { type: MarkerType.ArrowClosed } },
       { id: 'e3-4', source: '3', target: '4', sourceHandle: 'right', targetHandle: 'left', type: 'smoothstep', style: { strokeDasharray: '4,4' }, markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e4-5', source: '4', target: '5', sourceHandle: 'right', targetHandle: 'left', type: 'smoothstep', style: { strokeDasharray: '4,4' }, markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e2-6', source: '2', target: '6', type: 'smoothstep', animated: tier === 'TIER_1', style: { stroke: tier === 'TIER_1' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_1' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e3-6', source: '3', target: '6', type: 'smoothstep', animated: tier === 'TIER_2', style: { stroke: tier === 'TIER_2' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_2' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e4-6', source: '4', target: '6', type: 'smoothstep', animated: tier === 'TIER_3', style: { stroke: tier === 'TIER_3' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_3' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e5-6', source: '5', target: '6', type: 'smoothstep', animated: tier === 'TIER_4' || !isMatched, style: { stroke: tier === 'TIER_4' ? '#10B981' : !isMatched ? '#F59E0B' : '#334155', strokeWidth: tier === 'TIER_4' || !isMatched ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
-      { id: 'e6-7', source: '6', target: '7', type: 'smoothstep', animated: true, style: { stroke: isMatched ? '#10B981' : '#F59E0B', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e2-5', source: '2', target: '5', type: 'smoothstep', animated: tier === 'TIER_1', style: { stroke: tier === 'TIER_1' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_1' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e3-5', source: '3', target: '5', type: 'smoothstep', animated: tier === 'TIER_2', style: { stroke: tier === 'TIER_2' ? '#10B981' : '#334155', strokeWidth: tier === 'TIER_2' ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e4-5', source: '4', target: '5', type: 'smoothstep', animated: tier === 'TIER_3' || isException, style: { stroke: tier === 'TIER_3' ? '#10B981' : isException ? '#F59E0B' : '#334155', strokeWidth: tier === 'TIER_3' || isException ? 2 : 1 }, markerEnd: { type: MarkerType.ArrowClosed } },
+      { id: 'e5-6', source: '5', target: '6', type: 'smoothstep', animated: isMatched || isException, style: { stroke: isMatched ? '#10B981' : isException ? '#F59E0B' : '#334155', strokeWidth: 2 }, markerEnd: { type: MarkerType.ArrowClosed } },
     ];
 
     return { nodes: graphNodes, edges: graphEdges };
-  }, [transaction, nodeMap]);
+  }, [transaction, nodeMap, isMatched, isException, isUnprocessed, tier, metrics, cb]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -224,20 +219,22 @@ export function StateMachineDAG({ transaction, onClose }) {
               <div className="flex items-center gap-2">
                 <h2 className="text-base font-bold text-white">Execution State Machine &amp; Audit DAG</h2>
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">
-                  {transaction.bankTxnId}
+                  {transaction.bankTxnId || 'TXN-PENDING'}
                 </span>
                 <span
                   className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border ${
                     isMatched
                       ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : isException
+                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
                   }`}
                 >
-                  {isMatched ? `MATCHED (${tier})` : 'OUTBOX EXCEPTION'}
+                  {isMatched ? `MATCHED (${tier})` : isException ? 'OUTBOX EXCEPTION' : 'UNPROCESSED'}
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Live React Flow Trace: Ingest &rarr; 4-Tier Cascade &rarr; Math Circuit Breaker &rarr; General Ledger / Outbox
+                Live React Flow Trace: Ingest &rarr; 3-Tier Cascade &rarr; Math Circuit Breaker &rarr; General Ledger / Outbox
               </p>
             </div>
           </div>
@@ -274,13 +271,13 @@ export function StateMachineDAG({ transaction, onClose }) {
               Amount: <strong className="text-white font-mono">₹{Number(transaction.amount || 0).toLocaleString('en-IN')}</strong>
             </span>
             <span>
-              Narration: <span className="text-slate-300 font-mono text-[11px]">{transaction.narration}</span>
+              Narration: <span className="text-slate-300 font-mono text-[11px]">{transaction.narration || 'N/A'}</span>
             </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[11px] text-slate-500">Cryptographic Proof:</span>
             <span className="font-mono text-[10px] text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">
-              SHA-256 Merkle Link Verified
+              {isMatched ? 'SHA-256 Merkle Link Verified' : isException ? 'Discrepancy Audit Hash Chained' : 'Awaiting Ingestion Hash'}
             </span>
           </div>
         </div>

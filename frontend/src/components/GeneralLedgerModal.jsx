@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   BookOpen,
   CheckCircle2,
@@ -379,9 +379,8 @@ export function GeneralLedgerModal({ isOpen, onClose }) {
                   {[
                     { key: 'ALL', label: 'All Tiers' },
                     { key: 'TIER_1', label: 'Tier 1 (Exact)' },
-                    { key: 'TIER_2', label: 'Tier 2 (Tolerance/Split)' },
-                    { key: 'TIER_3', label: 'Tier 3 (Rule Cache)' },
-                    { key: 'TIER_4', label: 'Tier 4 (GenAI Pool)' },
+                    { key: 'TIER_2', label: 'Tier 2 (Rules & Split)' },
+                    { key: 'TIER_3', label: 'Tier 3 (GenAI Pool)' },
                   ].map((tab) => {
                     const isActive = journalTierFilter === tab.key;
                     return (

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { Sliders, Search, Filter } from 'lucide-react';
 
 export function RiskSlider({
@@ -111,9 +111,8 @@ export function RiskSlider({
           { key: 'MATCHED', label: 'Matched (Paid)' },
           { key: 'EXCEPTION', label: 'Discrepancies / Outbox' },
           { key: 'TIER_1', label: 'Tier 1 (Exact Match)' },
-          { key: 'TIER_2', label: 'Tier 2 (Tolerance & Split)' },
-          { key: 'TIER_3', label: 'Tier 3 (Rule Cache)' },
-          { key: 'TIER_4', label: 'Tier 4 (GenAI Pool)' },
+          { key: 'TIER_2', label: 'Tier 2 (Rules & Split)' },
+          { key: 'TIER_3', label: 'Tier 3 (GenAI Pool)' },
         ].map((tab) => {
           const isActive = statusFilter === tab.key;
           return (

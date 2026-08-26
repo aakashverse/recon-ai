@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateCircuitBreaker } from '../src/services/circuitBreaker.js';
 import { calculateEventHash, generateIdempotencyHash, GENESIS_HASH } from '../src/utils/hasher.js';
-import { computeNarrationFingerprint } from '../src/services/tier4GenAIPool.js';
+import { computeNarrationFingerprint, matchTier3 } from '../src/services/tier3GenAIPool.js';
 
 test('Circuit Breaker: should pass when Gross - Deductions === BankReceived', () => {
   const invoice = { totalAmount: 100000 };
@@ -89,4 +89,32 @@ test('RAG Fingerprinting: normalizes narrations while preserving vendor and keyw
   assert.match(fingerprint, /LESS TDS 10PCT/);
   assert.doesNotMatch(fingerprint, /2026-08-01/);
   assert.doesNotMatch(fingerprint, /2024-1001/);
+});
+
+test('Tier 3 GenAI Pool: correctly extracts OCR typos and deduction tokens in mock/offline mode', async () => {
+  const bankTxn = {
+    bankTxnId: 'TXN-TEST-01',
+    amount: 67500,
+    narration: 'UPI/CR/58291039102/1NV-2O24-IOO4/ZENITH/OCR-MESSY-TYPOS-TDS-1O-PERCENT',
+  };
+
+  const context = {
+    allInvoices: [
+      {
+        _id: 'inv-1',
+        invoiceNumber: 'INV-2024-1004',
+        customerName: 'Zenith Infotech Pvt Ltd',
+        totalAmount: 75000,
+        baseAmount: 63559.32,
+        status: 'UNPAID',
+      },
+    ],
+  };
+
+  const result = await matchTier3(bankTxn, { mockLlm: true }, context);
+  assert.equal(result.matched, true);
+  assert.equal(result.tier, 'TIER_3');
+  assert.equal(result.invoice.invoiceNumber, 'INV-2024-1004');
+  assert.equal(result.deductions.tdsRate, 10);
+  assert.equal(result.deductions.tdsAmount, 7500);
 });

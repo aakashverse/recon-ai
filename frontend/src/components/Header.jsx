@@ -53,7 +53,7 @@ export function Header({
               </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
-              Track 4: Enterprise 4-Tier AI Finance Controller
+              4-Tier AI Finance Controller
             </p>
           </div>
         </div>

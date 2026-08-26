@@ -385,7 +385,6 @@ reconRouter.get('/stats', async (req, res) => {
       tier1Count,
       tier2Count,
       tier3Count,
-      tier4Count,
       invoices,
       recentEvents,
       ragCacheHitsCount,
@@ -397,7 +396,6 @@ reconRouter.get('/stats', async (req, res) => {
       BankLedger.countDocuments({ matchedTier: 'TIER_1' }),
       BankLedger.countDocuments({ matchedTier: 'TIER_2' }),
       BankLedger.countDocuments({ matchedTier: 'TIER_3' }),
-      BankLedger.countDocuments({ matchedTier: 'TIER_4' }),
       Invoice.find().lean(),
       ReconciliationEvent.find().sort({ createdAt: -1 }).limit(100).lean(),
       BankLedger.countDocuments({ 'executionMetrics.ragCacheHit': true }),
@@ -419,10 +417,10 @@ reconRouter.get('/stats', async (req, res) => {
 
     // Cost economics calculation
     // Naive 100% LLM cost = $0.005 per txn
-    // Hybrid Cost = Tier 4 non-RAG calls only ($0.005 * (tier4Count - ragCacheHits))
-    const realTier4Calls = Math.max(0, tier4Count - ragCacheHitsCount);
+    // Hybrid Cost = Tier 3 non-RAG calls only ($0.005 * (tier3Count - ragCacheHits))
+    const realTier3Calls = Math.max(0, tier3Count - ragCacheHitsCount);
     const naiveCostUsd = totalLedgerCount * 0.005;
-    const hybridCostUsd = realTier4Calls * 0.005;
+    const hybridCostUsd = realTier3Calls * 0.005;
     const savingsPercent = naiveCostUsd > 0 ? Number((((naiveCostUsd - hybridCostUsd) / naiveCostUsd) * 100).toFixed(1)) : 100;
 
     const matchRatePercent = totalLedgerCount > 0 ? Number(((matchedCount / totalLedgerCount) * 100).toFixed(1)) : 0;
@@ -439,8 +437,7 @@ reconRouter.get('/stats', async (req, res) => {
         tier1: tier1Count,
         tier2: tier2Count,
         tier3: tier3Count,
-        tier4: tier4Count,
-        manual: Math.max(0, matchedCount - (tier1Count + tier2Count + tier3Count + tier4Count)),
+        manual: Math.max(0, matchedCount - (tier1Count + tier2Count + tier3Count)),
       },
       ragCacheHits: ragCacheHitsCount,
       latencyMetrics: {

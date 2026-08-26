@@ -1,16 +1,16 @@
-import assert from 'assert';
+﻿import assert from 'assert';
 import { connectDB } from '../src/config/db.js';
 import { seedDatabase, SAMPLE_BANK_FEED_50 } from './seed-data.js';
 import { ReconciliationEngine } from '../src/services/reconciliationEngine.js';
-import { matchTier4 } from '../src/services/tier4GenAIPool.js';
+import { matchTier3 } from '../src/services/tier3GenAIPool.js';
 import { validateCircuitBreaker } from '../src/services/circuitBreaker.js';
 
 const isMockLlm = process.argv.includes('--mock-llm') || process.env.MOCK_LLM === 'true';
 
 async function runBenchmark() {
   console.log(`\n================================================================================`);
-  console.log(`⚡ RAZORPAY B2B RECON AI ENGINE — HARDENED 4-TIER BENCHMARK SUITE`);
-  console.log(`   Execution Mode: ${isMockLlm ? '🟡 --mock-llm (Simulated Realistic ~200ms Network Latency)' : '🟢 Live Gemini 1.5 Flash (Real Network Round-Trips)'}`);
+  console.log(`⚡ RAZORPAY B2B RECON AI ENGINE — STREAMLINED 3-TIER BENCHMARK SUITE`);
+  console.log(`   Execution Mode: ${isMockLlm ? '🟡 --mock-llm (Simulated Realistic ~200ms Network Latency)' : '🟢 Live Google Gemini (Real API Calls)'}`);
   console.log(`================================================================================\n`);
 
   await connectDB();
@@ -18,9 +18,9 @@ async function runBenchmark() {
   await seedDatabase();
 
   // ---------------------------------------------------------------------------
-  // RUN A: 4-Tier Cascaded System Execution
+  // RUN A: 3-Tier Cascaded System Execution
   // ---------------------------------------------------------------------------
-  console.log(`\n🚀 [RUN A] Executing 50-Transaction 4-Tier Cascaded Batch...`);
+  console.log(`\n🚀 [RUN A] Executing 50-Transaction 3-Tier Cascaded Batch...`);
   const cascadeStart = performance.now();
 
   const { summary: cascadeSummary, results: cascadeResults } = await ReconciliationEngine.processBatch(
@@ -34,7 +34,6 @@ async function runBenchmark() {
   const tier1Durations = [];
   const tier2Durations = [];
   const tier3Durations = [];
-  const tier4Durations = [];
   const totalDurations = [];
 
   let mathDiscrepanciesCaught = 0;
@@ -50,13 +49,15 @@ async function runBenchmark() {
       tier2Durations.push(r.bankTxn?.executionMetrics?.tier2DurationMs || r.totalDurationMs);
     } else if (r.resolvedTier === 'TIER_3') {
       tier3Durations.push(r.bankTxn?.executionMetrics?.tier3DurationMs || r.totalDurationMs);
-    } else if (r.resolvedTier === 'TIER_4') {
-      tier4Durations.push(r.bankTxn?.executionMetrics?.tier4DurationMs || r.totalDurationMs);
     }
 
     if (!r.isReconciled) {
       if (r.circuitBreaker && !r.circuitBreaker.passed) {
-        mathDiscrepanciesCaught++;
+        if (r.circuitBreaker.discrepancyType === 'UNMATCHED') {
+          unmappedExceptions++;
+        } else {
+          mathDiscrepanciesCaught++;
+        }
       } else {
         unmappedExceptions++;
       }
@@ -68,7 +69,7 @@ async function runBenchmark() {
     }
   }
 
-  // P0.3 Assertion: Reconcile Discrepancy & Outbox Count
+  // Assertion: Reconcile Discrepancy & Outbox Count
   const totalDiscrepanciesAndExceptions = mathDiscrepanciesCaught + unmappedExceptions;
   assert.strictEqual(
     cascadeSummary.exceptionCount,
@@ -99,7 +100,7 @@ async function runBenchmark() {
   for (const txn of SAMPLE_BANK_FEED_50) {
     const txnStart = performance.now();
     try {
-      const aiRes = await matchTier4(txn, { mockLlm: isMockLlm });
+      const aiRes = await matchTier3(txn, { mockLlm: isMockLlm });
       if (aiRes.matched && aiRes.invoice) {
         const cb = validateCircuitBreaker(aiRes.invoice, txn.amount, aiRes.deductions || {});
         if (cb.passed) {
@@ -119,15 +120,15 @@ async function runBenchmark() {
 
   // Cost & Savings Calculations
   const naiveCostUsd = 50 * 0.005; // $0.005 per txn when 100% routed through raw LLM
-  const realLLMCalls = cascadeSummary.tierDistribution.tier4 - cascadeSummary.ragCacheHits;
-  const cascadeCostUsd = realLLMCalls * 0.005; // Tier 1, 2, 3 and RAG hits cost $0.000
+  const realLLMCalls = cascadeSummary.tierDistribution.tier3 - cascadeSummary.ragCacheHits;
+  const cascadeCostUsd = Math.max(0, realLLMCalls * 0.005); // Tier 1, 2 and RAG hits cost $0.000
   const costSavings = Number((((naiveCostUsd - cascadeCostUsd) / naiveCostUsd) * 100).toFixed(1));
 
   // ---------------------------------------------------------------------------
   // PRINT BENCHMARK REPORTS
   // ---------------------------------------------------------------------------
   console.log(`\n--------------------------------------------------------------------------------`);
-  console.log(`📊 4-TIER CASCADED ENGINE RESULTS`);
+  console.log(`📊 3-TIER CASCADED ENGINE RESULTS`);
   console.log(`--------------------------------------------------------------------------------`);
   console.table([
     { Metric: 'Total Transactions Evaluated', Value: cascadeSummary.totalCount },
@@ -135,9 +136,8 @@ async function runBenchmark() {
     { Metric: 'Discrepancies / Outbox Exceptions', Value: cascadeSummary.exceptionCount },
     { Metric: 'Overall Reconciliation Rate', Value: `${cascadeSummary.matchRatePercent}%` },
     { Metric: 'Tier 1 Deterministic Exact (<2ms)', Value: `${cascadeSummary.tierDistribution.tier1} txns ($0 cost)` },
-    { Metric: 'Tier 2 Tolerance / Split Match (<5ms)', Value: `${cascadeSummary.tierDistribution.tier2} txns ($0 cost)` },
-    { Metric: 'Tier 3 Self-Healing Rule Cache (<10ms)', Value: `${cascadeSummary.tierDistribution.tier3} txns ($0 cost)` },
-    { Metric: 'Tier 4 GenAI & RAG Worker Pool', Value: `${cascadeSummary.tierDistribution.tier4} txns (${cascadeSummary.ragCacheHits} RAG cache hits)` },
+    { Metric: 'Tier 2 Rules, Tolerance & Split (<5ms)', Value: `${cascadeSummary.tierDistribution.tier2} txns ($0 cost)` },
+    { Metric: 'Tier 3 GenAI & RAG Worker Pool', Value: `${cascadeSummary.tierDistribution.tier3} txns (${cascadeSummary.ragCacheHits} RAG cache hits)` },
     { Metric: 'Circuit Breaker Discrepancies Caught', Value: mathDiscrepanciesCaught },
     { Metric: 'Mathematical Precision Guard', Value: arithmeticErrorsAllowed === 0 ? '100.00% (Zero Hallucinations)' : 'FAILED' },
     { Metric: 'Discrepancy Assertion Audit', Value: 'PASSED (0 Divergence)' },
@@ -157,7 +157,7 @@ async function runBenchmark() {
       'P99 Latency': `${getPercentile(naiveDurations, 99)}ms`,
     },
     {
-      Architecture: 'Razorpay 4-Tier Cascaded AI Controller',
+      Architecture: 'Razorpay 3-Tier Cascaded AI Controller',
       'Match Rate': `${cascadeSummary.matchRatePercent}%`,
       'Total Cost': `$${cascadeCostUsd.toFixed(3)}`,
       'Total Batch Latency': `${(cascadeTotalDuration / 1000).toFixed(2)}s`,
@@ -175,9 +175,8 @@ async function runBenchmark() {
   console.log(`--------------------------------------------------------------------------------`);
   console.table([
     { Tier: 'Tier 1: Deterministic Exact Match', P50: getPercentile(tier1Durations, 50), P95: getPercentile(tier1Durations, 95), P99: getPercentile(tier1Durations, 99) },
-    { Tier: 'Tier 2: Tolerance & Split Matcher', P50: getPercentile(tier2Durations, 50), P95: getPercentile(tier2Durations, 95), P99: getPercentile(tier2Durations, 99) },
-    { Tier: 'Tier 3: Self-Healing Rule Cache', P50: getPercentile(tier3Durations, 50), P95: getPercentile(tier3Durations, 95), P99: getPercentile(tier3Durations, 99) },
-    { Tier: 'Tier 4: GenAI & RAG Worker Pool', P50: getPercentile(tier4Durations, 50), P95: getPercentile(tier4Durations, 95), P99: getPercentile(tier4Durations, 99) },
+    { Tier: 'Tier 2: Rules, Tolerance & Split Engine', P50: getPercentile(tier2Durations, 50), P95: getPercentile(tier2Durations, 95), P99: getPercentile(tier2Durations, 99) },
+    { Tier: 'Tier 3: GenAI & RAG Worker Pool', P50: getPercentile(tier3Durations, 50), P95: getPercentile(tier3Durations, 95), P99: getPercentile(tier3Durations, 99) },
     { Tier: 'Overall End-to-End Pipeline', P50: p50Total, P95: p95Total, P99: p99Total },
   ]);
 

@@ -44,17 +44,27 @@ export default function App() {
   // 0ms In-Memory Instant Filter Pipeline
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
-      // 1. Confidence threshold
-      const conf = t.confidenceScore !== undefined ? t.confidenceScore : 1.0;
-      if (conf < minConfidence) return false;
+      const isMatched = t.reconciliationStatus === 'MATCHED';
+      const isException =
+        t.reconciliationStatus === 'EXCEPTION' ||
+        t.reconciliationStatus === 'DISCREPANCY' ||
+        t.matchedTier === 'OUTBOX_EXCEPTION' ||
+        Boolean(t.discrepancyDetails && !isMatched);
 
-      // 2. Status & Tier filter
-      if (statusFilter === 'MATCHED' && t.reconciliationStatus !== 'MATCHED') return false;
-      if (statusFilter === 'EXCEPTION' && t.reconciliationStatus !== 'EXCEPTION') return false;
-      if (statusFilter === 'TIER_1' && (t.matchedTier !== 'TIER_1' || t.reconciliationStatus !== 'MATCHED')) return false;
-      if (statusFilter === 'TIER_2' && (t.matchedTier !== 'TIER_2' || t.reconciliationStatus !== 'MATCHED')) return false;
-      if (statusFilter === 'TIER_3' && (t.matchedTier !== 'TIER_3' || t.reconciliationStatus !== 'MATCHED')) return false;
-      if (statusFilter === 'TIER_4' && (t.matchedTier !== 'TIER_4' || t.reconciliationStatus !== 'MATCHED')) return false;
+      // 1. Status & Tier filter
+      if (statusFilter === 'MATCHED' && !isMatched) return false;
+      if (statusFilter === 'EXCEPTION' && !isException) return false;
+      if (statusFilter === 'TIER_1' && (t.matchedTier !== 'TIER_1' || !isMatched)) return false;
+      if (statusFilter === 'TIER_2' && (t.matchedTier !== 'TIER_2' || !isMatched)) return false;
+      if (statusFilter === 'TIER_3' && (t.matchedTier !== 'TIER_3' || !isMatched)) return false;
+
+      // 2. Confidence threshold
+      // When explicitly filtering for EXCEPTION, never drop discrepancies based on confidence
+      if (statusFilter !== 'EXCEPTION') {
+        const conf = t.confidenceScore !== undefined ? t.confidenceScore : 1.0;
+        // For matched records, respect minConfidence; for exceptions in ALL tab, keep them unless slider is set to 95%+
+        if (isMatched && conf < minConfidence) return false;
+      }
 
       // 3. Search query
       if (searchQuery.trim()) {
@@ -65,6 +75,7 @@ export default function App() {
         const invNum = (t.reconciledInvoiceId?.invoiceNumber || '').toLowerCase();
         const vendor = (t.reconciledInvoiceId?.customerName || '').toLowerCase();
         const splitInvs = (t.splitInvoices || []).map((s) => s.invoiceNumber || '').join(' ').toLowerCase();
+        const discReason = (t.discrepancyDetails?.reason || '').toLowerCase();
 
         return (
           narration.includes(q) ||
@@ -72,7 +83,8 @@ export default function App() {
           txnId.includes(q) ||
           invNum.includes(q) ||
           vendor.includes(q) ||
-          splitInvs.includes(q)
+          splitInvs.includes(q) ||
+          discReason.includes(q)
         );
       }
 

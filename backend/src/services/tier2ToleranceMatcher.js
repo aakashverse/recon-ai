@@ -1,4 +1,5 @@
 import { Invoice } from '../models/Invoice.js';
+import { RuleCache } from '../models/RuleCache.js';
 
 /**
  * Known Statutory TDS Rates in India & their Standard Accounting Sections
@@ -99,11 +100,85 @@ export async function matchTier2(bankTxn, context = {}) {
       tier: 'TIER_2',
       invoice: explicitInvoice,
       durationMs,
-      reason: `Invoice ${explicitInvoice.invoiceNumber} variance (Gross ₹${explicitInvoice.totalAmount} vs Bank ₹${bankAmount}) does not match standard statutory tables. Passing to Tier 3.`,
+      reason: `Invoice ${explicitInvoice.invoiceNumber} variance (Gross ₹${explicitInvoice.totalAmount} vs Bank ₹${bankAmount}) does not match standard statutory tables or learned rules. Passing to Tier 3.`,
     };
   }
 
-  // 3. Bounded Split-Matching (1 Bank Deposit settling 2 open invoices)
+  // 3. Learned Rule Cache Check (Historical vendor deduction rules)
+  const activeRules = context.activeRules || (await RuleCache.find({ isActive: true }).lean());
+  if (activeRules && activeRules.length > 0) {
+    const upperNarration = rawNarration.toUpperCase();
+    for (const rule of activeRules) {
+      let matchesRule = false;
+      if (rule.partyIdentifier && upperNarration.includes(rule.partyIdentifier.toUpperCase())) {
+        matchesRule = true;
+      }
+      if (!matchesRule && rule.matchCriteria?.narrationKeywords?.length) {
+        if (rule.matchCriteria.narrationKeywords.some((kw) => upperNarration.includes(kw.toUpperCase()))) {
+          matchesRule = true;
+        }
+      }
+      if (!matchesRule && rule.matchCriteria?.regexPattern) {
+        try {
+          if (new RegExp(rule.matchCriteria.regexPattern, 'i').test(upperNarration)) matchesRule = true;
+        } catch {}
+      }
+
+      if (matchesRule) {
+        let ruleCandidates = [];
+        if (context.allInvoices) {
+          ruleCandidates = context.allInvoices.filter((inv) => {
+            if (inv.status === 'PAID') return false;
+            const vendorFilters = [rule.partyIdentifier, ...(rule.matchCriteria?.narrationKeywords || [])].filter(Boolean);
+            const cName = (inv.customerName || '').toUpperCase();
+            return vendorFilters.some((kw) => cName.includes(kw.toUpperCase()));
+          });
+        } else {
+          const vendorFilters = [rule.partyIdentifier, ...(rule.matchCriteria?.narrationKeywords || [])].filter(Boolean);
+          const invoiceQuery = {
+            status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+            $or: vendorFilters.map((kw) => ({
+              customerName: { $regex: new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') },
+            })),
+          };
+          ruleCandidates = await Invoice.find(invoiceQuery).lean();
+        }
+
+        for (const invoice of ruleCandidates) {
+          const gross = Number(invoice.totalAmount);
+          const tdsRate = rule.action?.defaultTdsRate || 0;
+          const tdsSection = rule.action?.defaultTdsSection || '194C';
+          const expectedTds = (gross * tdsRate) / 100;
+          const netExpected = gross - expectedTds;
+          const diff = Math.abs(netExpected - bankAmount);
+
+          if (diff <= 1.05) {
+            const durationMs = performance.now() - startTime;
+            return {
+              matched: true,
+              tier: 'TIER_2',
+              invoice,
+              ruleApplied: rule.ruleName,
+              confidence: 0.94,
+              deductions: {
+                tdsAmount: Number(expectedTds.toFixed(2)),
+                tdsRate,
+                tdsSection,
+                bankCharges: 0,
+                discount: 0,
+                gstRounding: Number(diff.toFixed(2)),
+                totalDeductions: Number(expectedTds.toFixed(2)),
+              },
+              durationMs,
+              matchType: 'LEARNED_VENDOR_RULE_MATCH',
+            };
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Bounded Split-Matching (1 Bank Deposit settling 2 open invoices)
   const splitCandidates = findBoundedSplitMatch(openInvoices, bankAmount, rawNarration, context);
   if (splitCandidates && splitCandidates.invoices.length >= 2) {
     const totalGross = splitCandidates.invoices.reduce((s, i) => s + i.totalAmount, 0);
@@ -132,7 +207,7 @@ export async function matchTier2(bankTxn, context = {}) {
     };
   }
 
-  // 4. If NO explicit invoice was found, scan open invoices whose customer name matches the narration
+  // 5. If NO explicit invoice was found, scan open invoices whose customer name matches the narration
   if (rawNarration) {
     const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
     for (const inv of openInvoices) {
@@ -160,7 +235,7 @@ export async function matchTier2(bankTxn, context = {}) {
     matched: false,
     tier: 'TIER_2',
     durationMs,
-    reason: 'No statutory tolerance delta or bounded split match resolved. Passing to Tier 3.',
+    reason: 'No statutory tolerance delta, learned rule, or split match resolved. Passing to Tier 3 (GenAI).',
   };
 }
 

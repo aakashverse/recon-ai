@@ -167,35 +167,54 @@ export function normalizeBankStatementRows(rawRows) {
   if (!Array.isArray(rawRows)) return [];
 
   return rawRows.map((r, idx) => {
-    // 1. Amount detection (Look strictly for Bank Amount, Credit, Deposit, Cr, Net Amount)
-    const rawAmount = findValueByKeys(r, [
+    // 1. Amount detection (Look strictly for Bank Amount, Credit, Deposit, Cr, Net Amount, Bank Received)
+    let rawAmount = findValueByKeys(r, [
       'bank amount (inr)',
       'bank amount inr',
       'bank amount',
       'bank_amount',
       'bankamountinr',
       'bankamount',
+      'bank received',
+      'bank_received',
+      'bankreceived',
       'credit amount',
       'credit',
       'deposit',
       'cr amount',
       'cr',
       'net amount',
+      'net_amount',
+      'net payment',
+      'net_payment',
+      'netpaymentamount',
       'transaction amount',
       'txn amount',
       'amount',
     ]);
+
+    // Fallback: If amount is missing but equation is provided (e.g. "50000 - 1000 = 49000")
+    if (rawAmount === undefined && r.equation) {
+      const eqParts = String(r.equation).split('=');
+      if (eqParts.length > 1) {
+        rawAmount = eqParts[eqParts.length - 1].trim();
+      }
+    }
+
     const amount = extractNumber(rawAmount, 0);
 
     // 2. Vendor / Customer & Invoice references
     const vendor = findValueByKeys(r, ['vendor', 'vendor name', 'customer', 'customer name', 'party', 'client', 'supplier']);
     const invoiceId = findValueByKeys(r, ['invoice id', 'invoice number', 'inv no', 'bill no', 'invoice', 'invoice_id']);
+    const targetInvs = Array.isArray(r.targetInvoices) ? r.targetInvoices.join('-AND-') : null;
     const bankTxnKey = findValueByKeys(r, ['bank txn id', 'bank_txn_id', 'bank id', 'bank_id', 'bank ref', 'bank_ref', 'transaction id', 'banktxnid']);
 
     // 3. Narration / Description
     let narration = findValueByKeys(r, ['narration', 'description', 'particulars', 'remarks', 'transaction remarks', 'details']);
     if (!narration) {
-      if (vendor || invoiceId) {
+      if (targetInvs) {
+        narration = `NEFT/CMS/${targetInvs}${r.expectedTdsSection ? '/TDS-' + r.expectedTdsSection : ''}${r.expectedTdsRate ? '-' + r.expectedTdsRate + 'PCT' : ''}`;
+      } else if (vendor || invoiceId) {
         narration = `${vendor || 'Vendor'}${invoiceId ? ' - ' + invoiceId : ''}${bankTxnKey ? ' - Ref: ' + bankTxnKey : ''}`;
       } else {
         narration = `Bank Credit #${idx + 1}`;

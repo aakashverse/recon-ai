@@ -1,4 +1,4 @@
-﻿import fs from 'fs';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -91,7 +91,7 @@ export const NIGHTMARE_DATA_20 = [
     utrNumber: 'CITIN11002299',
     amount: 441000,
     narration: 'CITI-CORP/TATA-CONSULTANCY/INV-2024-2004/RULE-HISTORICAL-CONTRACT-2PCT',
-    category: 'TIER_3_RULE_CACHE_HISTORICAL',
+    category: 'TIER_2_LEARNED_RULE_HISTORICAL',
     txnDate: '2026-08-25'
   },
   {
@@ -99,7 +99,7 @@ export const NIGHTMARE_DATA_20 = [
     utrNumber: 'HSBCN99221100',
     amount: 274400,
     narration: 'HSBC/NEFT/WIPRO/INV-2024-2006/RETAINER-MONTHLY-SETTL-2PCT',
-    category: 'TIER_3_RULE_CACHE_RETAINER',
+    category: 'TIER_2_LEARNED_RULE_RETAINER',
     txnDate: '2026-08-25'
   },
   {
@@ -107,7 +107,7 @@ export const NIGHTMARE_DATA_20 = [
     utrNumber: 'UPI58291039102',
     amount: 67500,
     narration: 'UPI/CR/58291039102/1NV-2O24-IOO4/ZENITH/OCR-MESSY-TYPOS-TDS-1O-PERCENT',
-    category: 'TIER_4_GENAI_OCR_TYPO_HEALING',
+    category: 'TIER_3_GENAI_OCR_TYPO_HEALING',
     txnDate: '2026-08-25'
   },
   {
@@ -115,7 +115,7 @@ export const NIGHTMARE_DATA_20 = [
     utrNumber: 'IMPS8829102910',
     amount: 144000,
     narration: 'IMPS/HEXAWAVE-CONSULTING/PROF-SERVICES-SETTLEMENT-LESS-10PCT-TDS-AUG',
-    category: 'TIER_4_GENAI_NATURAL_LANGUAGE',
+    category: 'TIER_3_GENAI_NATURAL_LANGUAGE',
     txnDate: '2026-08-25'
   },
   {

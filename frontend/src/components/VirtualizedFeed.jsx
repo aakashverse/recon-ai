@@ -70,7 +70,11 @@ export function VirtualizedFeed({
             if (!txn) return null;
 
             const isMatched = txn.reconciliationStatus === 'MATCHED';
-            const isException = txn.reconciliationStatus === 'EXCEPTION';
+            const isException =
+              txn.reconciliationStatus === 'EXCEPTION' ||
+              txn.reconciliationStatus === 'DISCREPANCY' ||
+              txn.matchedTier === 'OUTBOX_EXCEPTION' ||
+              Boolean(txn.discrepancyDetails && !isMatched);
             const tier = txn.matchedTier;
             const invoice = txn.reconciledInvoiceId;
 
@@ -118,17 +122,17 @@ export function VirtualizedFeed({
                   )}
                   {tier === 'TIER_2' && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-mono font-medium border border-teal-500/30">
-                      Tier 2: Tolerance
+                      Tier 2: Rules &amp; Split
                     </span>
                   )}
                   {tier === 'TIER_3' && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono font-medium border border-emerald-500/30">
-                      Tier 3: Rule Cache
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-razor-purple/20 text-purple-300 font-mono font-medium border border-razor-purple/30 flex items-center gap-1">
+                      {txn.executionMetrics?.ragCacheHit ? '⚡ Tier 3: RAG' : 'Tier 3: GenAI'}
                     </span>
                   )}
-                  {tier === 'TIER_4' && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-razor-purple/20 text-purple-300 font-mono font-medium border border-razor-purple/30 flex items-center gap-1">
-                      {txn.executionMetrics?.ragCacheHit ? '⚡ Tier 4: RAG' : 'Tier 4: GenAI'}
+                  {isException && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono font-medium border border-amber-500/20">
+                      Outbox Queue
                     </span>
                   )}
                   {tier === 'MANUAL' && (
@@ -159,6 +163,11 @@ export function VirtualizedFeed({
                         <ArrowRight className="w-2.5 h-2.5" />
                         {invoice.invoiceNumber || 'INV'} • {invoice.customerName || 'Vendor'}
                       </span>
+                    ) : isException && txn.discrepancyDetails?.reason ? (
+                      <span className="text-amber-400/90 font-medium truncate flex items-center gap-1" title={txn.discrepancyDetails.reason}>
+                        <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                        {txn.discrepancyDetails.reason}
+                      </span>
                     ) : (
                       <span className="text-slate-500 italic">No mapped invoice candidate</span>
                     )}
@@ -174,6 +183,10 @@ export function VirtualizedFeed({
                     <div className="text-[10px] font-mono text-amber-400">
                       -₹{txn.deductionsApplied.totalDeductions.toLocaleString('en-IN')}{' '}
                       ({txn.deductionsApplied.tdsSection || 'TDS'})
+                    </div>
+                  ) : isException && txn.discrepancyDetails?.difference ? (
+                    <div className="text-[10px] font-mono text-rose-400 font-semibold">
+                      Δ ₹{Math.abs(txn.discrepancyDetails.difference).toLocaleString('en-IN')} (Diff)
                     </div>
                   ) : (
                     <div className="text-[10px] font-mono text-slate-500">Gross Paid (0 TDS)</div>

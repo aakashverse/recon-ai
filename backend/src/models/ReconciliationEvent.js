@@ -10,7 +10,6 @@ const dagNodeSchema = new mongoose.Schema(
         'STEP_TIER_1',
         'STEP_TIER_2',
         'STEP_TIER_3',
-        'STEP_TIER_4',
         'STEP_CIRCUIT_BREAKER',
         'STEP_COMMIT',
         'STEP_JOURNAL',
@@ -69,7 +68,7 @@ const reconciliationEventSchema = new mongoose.Schema(
     dagNodes: [dagNodeSchema],
     resolvedTier: {
       type: String,
-      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4', 'OUTBOX_EXCEPTION', 'DUPLICATE_REJECTED'],
+      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'OUTBOX_EXCEPTION', 'DUPLICATE_REJECTED'],
       required: true,
     },
     bankAmount: {

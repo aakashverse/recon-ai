@@ -54,7 +54,7 @@ const bankLedgerSchema = new mongoose.Schema(
     ],
     matchedTier: {
       type: String,
-      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'TIER_4', 'MANUAL', null],
+      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'MANUAL', null],
       default: null,
     },
     confidenceScore: {

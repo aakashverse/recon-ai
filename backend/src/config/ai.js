@@ -8,15 +8,20 @@ let genAI = null;
 let geminiModel = null;
 let textGenModel = null;
 
+let activeModelName = 'gemini-1.5-flash';
+
 export function initGemini(apiKey = currentApiKey) {
   if (apiKey && apiKey !== 'your_gemini_api_key_here' && apiKey.trim().length > 10) {
     try {
       currentApiKey = apiKey.trim();
       genAI = new GoogleGenerativeAI(currentApiKey);
       
+      const candidateModels = ['gemini-1.5-flash'];
+      activeModelName = candidateModels[0];
+
       // JSON Model for structured extraction
       geminiModel = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: activeModelName,
         generationConfig: {
           responseMimeType: 'application/json',
           temperature: 0.1,
@@ -25,20 +30,20 @@ export function initGemini(apiKey = currentApiKey) {
 
       // Text Model for dynamic reasoning & dispute drafting
       textGenModel = genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+        model: activeModelName,
         generationConfig: {
           temperature: 0.3,
         },
       });
 
-      console.log('[AI Engine] Google Gemini initialized successfully.');
+      console.log(`[AI Engine] Google Gemini (${activeModelName}) initialized successfully.`);
       return true;
     } catch (err) {
       console.warn('[AI Engine] Failed to initialize Gemini API:', err.message);
       return false;
     }
   } else {
-    console.log('[AI Engine] Operating in High-Resilience Intelligent Mode (Built-in Heuristic & Template Engine). Add GEMINI_API_KEY in .env or via UI for live Gemini 1.5 Flash calls.');
+    console.log('[AI Engine] Operating in High-Resilience Intelligent Mode (Built-in Heuristic & Template Engine). Add GEMINI_API_KEY in .env or via UI for live Gemini Flash calls.');
     return false;
   }
 }
@@ -63,7 +68,7 @@ export function getApiKeyStatus() {
     isConfigured: isAIAvailable(),
     hasKey: Boolean(currentApiKey && currentApiKey !== 'your_gemini_api_key_here'),
     keyMasked: currentApiKey ? `${currentApiKey.slice(0, 6)}...${currentApiKey.slice(-4)}` : null,
-    modelName: 'gemini-1.5-flash',
+    modelName: activeModelName,
     freeTierInfo: 'Google AI Studio Free Tier supports 15 Requests/Min & 1,500 Requests/Day with 0 cost.',
   };
 }
