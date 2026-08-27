@@ -15,7 +15,10 @@ export async function connectDB() {
   // Try primary URI
   try {
     const conn = await mongoose.connect(PRIMARY_URI, {
-      serverSelectionTimeoutMS: 4000,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 20,
       autoIndex: true,
     });
 

@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "razorpay-recon-ai",
   "version": "2.1.0",
   "description": "Razorpay Buildathon Track-04: Enterprise 4-Tier AI Finance Controller",
@@ -12,6 +12,8 @@
     "benchmark:live": "npm run benchmark --prefix backend",
     "verify-chain": "npm run verify-chain --prefix backend",
     "fault-demo": "npm run fault-demo --prefix backend",
+    "eval-genai": "npm run eval-genai --prefix backend",
+    "eval-genai:mock": "npm run eval-genai:mock --prefix backend",
     "test": "npm run test --prefix backend"
   }
 }

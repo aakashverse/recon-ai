@@ -8,7 +8,7 @@ let genAI = null;
 let geminiModel = null;
 let textGenModel = null;
 
-let activeModelName = 'gemini-1.5-flash';
+let activeModelName = 'gemini-3.6-flash';
 
 export function initGemini(apiKey = currentApiKey) {
   if (apiKey && apiKey !== 'your_gemini_api_key_here' && apiKey.trim().length > 10) {
@@ -16,7 +16,7 @@ export function initGemini(apiKey = currentApiKey) {
       currentApiKey = apiKey.trim();
       genAI = new GoogleGenerativeAI(currentApiKey);
       
-      const candidateModels = ['gemini-1.5-flash'];
+      const candidateModels = ['gemini-3.6-flash'];
       activeModelName = candidateModels[0];
 
       // JSON Model for structured extraction
@@ -61,6 +61,14 @@ export function getTextGenModel() {
 
 export function isAIAvailable() {
   return Boolean(geminiModel);
+}
+
+export function getGenAI() {
+  return genAI;
+}
+
+export function getActiveModelName() {
+  return activeModelName;
 }
 
 export function getApiKeyStatus() {

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   MessageSquare,
   TrendingUp,
@@ -9,6 +9,8 @@ import {
   Calendar,
   Layers,
   RefreshCw,
+  CheckCircle2,
+  Cpu,
 } from 'lucide-react';
 
 export function FinanceControllerModal({ isOpen, onClose }) {
@@ -75,7 +77,15 @@ I have real-time access to your verified MongoDB ledger, statutory TDS withholdi
 
       if (res.ok) {
         const data = await res.json();
-        setMessages((prev) => [...prev, { role: 'assistant', text: data.answer }]);
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'assistant',
+            text: data.answer,
+            toolCallsExecuted: data.toolCallsExecuted || [],
+            grounded: data.grounded,
+          },
+        ]);
       } else {
         setMessages((prev) => [
           ...prev,
@@ -180,7 +190,35 @@ I have real-time access to your verified MongoDB ledger, statutory TDS withholdi
                         : 'bg-slate-800/90 border border-slate-700/80 text-slate-200 rounded-tl-none font-sans'
                     }`}
                   >
-                    {m.text}
+                    <div>{m.text}</div>
+
+                    {/* Step 2 Grounded Tool Call Proof Receipts */}
+                    {m.toolCallsExecuted && m.toolCallsExecuted.length > 0 && (
+                      <div className="mt-3 pt-2.5 border-t border-slate-700/60">
+                        <div className="text-[11px] font-mono text-emerald-400 font-semibold flex items-center gap-1.5 mb-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Grounded Tool Calls Executed ({m.toolCallsExecuted.length}):</span>
+                        </div>
+                        <div className="space-y-1">
+                          {m.toolCallsExecuted.map((tc, tcIdx) => (
+                            <details key={tcIdx} className="bg-slate-900/90 rounded-lg border border-slate-700/80 p-2 text-[10px] font-mono">
+                              <summary className="cursor-pointer text-slate-300 font-bold hover:text-white flex items-center justify-between">
+                                <span className="flex items-center gap-1">
+                                  <Cpu className="w-3 h-3 text-razor-blue" />
+                                  <span>{tc.toolName}({Object.keys(tc.arguments || {}).map((k) => `${k}: "${tc.arguments[k]}"`).join(', ')})</span>
+                                </span>
+                                <span className="text-emerald-400 text-[9px] bg-emerald-950/60 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                                  VERIFIED
+                                </span>
+                              </summary>
+                              <pre className="mt-1.5 p-1.5 bg-slate-950 rounded text-slate-300 overflow-x-auto text-[9px] leading-snug">
+                                {JSON.stringify(tc.output, null, 2)}
+                              </pre>
+                            </details>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}

@@ -12,6 +12,8 @@
     "benchmark:mock": "node scripts/run-benchmark.js --mock-llm",
     "verify-chain": "node scripts/verify-chain.js",
     "fault-demo": "node scripts/fault-injection-demo.js",
+    "eval-genai": "node scripts/eval-genai.js",
+    "eval-genai:mock": "node scripts/eval-genai.js --mock-llm",
     "test": "node --test test/*.test.js"
   },
   "dependencies": {

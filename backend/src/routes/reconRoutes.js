@@ -7,9 +7,9 @@ import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
 import { RuleCache } from '../models/RuleCache.js';
 import { JournalEntry } from '../models/JournalEntry.js';
-import { JournalService } from '../services/journalService.js';
 import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, isAIAvailable } from '../config/ai.js';
 import { parseCSV, normalizeBankStatementRows, normalizeInvoiceRows } from '../utils/csvParser.js';
+import { runSettlementAgent } from '../services/settlementAgent.js';
 
 export const reconRouter = express.Router();
 
@@ -580,135 +580,18 @@ reconRouter.post('/reset', async (req, res) => {
 });
 
 /**
- * Track-04 Direction 3: Settlement Q&A Agent
- * Answers natural-language accounting & reconciliation queries over verified live ledger data
+ * Track-04 Direction 3 & GenAI Depth Step 2: Function-Calling Settlement Q&A Agent
+ * Answers natural-language accounting queries with grounded database function calling
  */
 reconRouter.post('/assistant-chat', async (req, res) => {
   try {
     const { query } = req.body;
-    if (!query || typeof query !== 'string') {
+    if (!query || typeof query !== 'string' || !query.trim()) {
       return res.status(400).json({ error: 'Query string is required.' });
     }
 
-    // 1. Gather real-time verified ledger metrics
-    const [
-      totalInvoices,
-      unpaidInvoices,
-      reconciledTxns,
-      exceptionTxns,
-      recentEvents,
-      rules,
-    ] = await Promise.all([
-      Invoice.find().lean(),
-      Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean(),
-      BankLedger.find({ reconciliationStatus: 'MATCHED' }).populate('reconciledInvoiceId').lean(),
-      BankLedger.find({ reconciliationStatus: 'EXCEPTION' }).lean(),
-      ReconciliationEvent.find().sort({ createdAt: -1 }).limit(10).lean(),
-      RuleCache.find({ isActive: true }).lean(),
-    ]);
-
-    const totalBilled = totalInvoices.reduce((s, i) => s + (Number(i.totalAmount) || 0), 0);
-    const totalCollected = reconciledTxns.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-    const totalExceptionsAmount = exceptionTxns.reduce((s, t) => s + (Number(t.amount) || 0), 0);
-
-    // Compute TDS deductions by section
-    const tdsBreakdown = {};
-    for (const t of reconciledTxns) {
-      const section = t.deductionsApplied?.tdsSection || 'NONE';
-      const amt = Number(t.deductionsApplied?.tdsAmount || 0);
-      if (amt > 0) {
-        tdsBreakdown[section] = (tdsBreakdown[section] || 0) + amt;
-      }
-    }
-
-    // Top exceptions list
-    const topExceptions = exceptionTxns.slice(0, 5).map((e) => ({
-      bankTxnId: e.bankTxnId,
-      amount: e.amount,
-      narration: e.narration,
-      reason: e.discrepancyDetails?.reason || 'Discrepancy detected',
-      discrepancyAmount: e.discrepancyDetails?.discrepancyAmount || 0,
-    }));
-
-    const contextSummary = {
-      totalInvoicesCount: totalInvoices.length,
-      unpaidInvoicesCount: unpaidInvoices.length,
-      totalBilledInr: totalBilled,
-      totalCollectedInr: totalCollected,
-      reconciledTxnsCount: reconciledTxns.length,
-      exceptionsCount: exceptionTxns.length,
-      totalExceptionsInr: totalExceptionsAmount,
-      tdsWithholdingsBySection: tdsBreakdown,
-      topExceptions,
-      activeRulesCount: rules.length,
-      matchRatePercent: reconciledTxns.length + exceptionTxns.length > 0
-        ? Math.round((reconciledTxns.length / (reconciledTxns.length + exceptionTxns.length)) * 100)
-        : 0,
-    };
-
-    // 2. Call Gemini 1.5 Flash if available, else deterministic finance accountant synthesizer
-    const model = getGeminiModel();
-    if (isAIAvailable() && model) {
-      try {
-        const prompt = `You are an elite B2B AI Finance Controller for Razorpay Recon AI.
-Your answers are strictly grounded in verified database accounting data.
-
-Context Summary from live database:
-${JSON.stringify(contextSummary, null, 2)}
-
-User Question: "${query}"
-
-Guidelines:
-- Provide concise, professional, bulleted financial answers with exact INR amounts (₹).
-- Cite specific statutory TDS sections (e.g. 194C, 194J, 194H, 206AB) and transaction IDs where relevant.
-- Never hallucinate data that is not in the context.`;
-
-        const result = await model.generateContent(prompt);
-        const answer = result.response.text();
-        return res.json({ answer, context: contextSummary });
-      } catch (err) {
-        console.warn('[Assistant Chat] Gemini API error, falling back to local synthesizer:', err.message);
-      }
-    }
-
-    // High-precision local fallback response
-    let answer = `### 📊 AI Finance Controller Report\n\n`;
-    const qLower = query.toLowerCase();
-
-    if (qLower.includes('tds') || qLower.includes('tax')) {
-      answer += `**Statutory TDS Withholdings Summary:**\n`;
-      const sections = Object.entries(tdsBreakdown);
-      if (sections.length > 0) {
-        for (const [sec, amt] of sections) {
-          answer += `- **Section ${sec}**: ₹${amt.toLocaleString('en-IN')}\n`;
-        }
-        const totalTds = Object.values(tdsBreakdown).reduce((a, b) => a + b, 0);
-        answer += `\n**Total TDS Withheld by Clients:** ₹${totalTds.toLocaleString('en-IN')} (Eligible for Form 26AS tax credit claim).`;
-      } else {
-        answer += `No TDS deductions recorded in the current reconciled batch.`;
-      }
-    } else if (qLower.includes('exception') || qLower.includes('outbox') || qLower.includes('discrepan')) {
-      answer += `**Active Exceptions in Outbox (${contextSummary.exceptionsCount} items | ₹${totalExceptionsAmount.toLocaleString('en-IN')}):**\n`;
-      for (const ex of topExceptions) {
-        answer += `- **${ex.bankTxnId}** (₹${ex.amount.toLocaleString('en-IN')}): ${ex.reason} — *${ex.narration.slice(0, 45)}...*\n`;
-      }
-      answer += `\n*Action*: Automated WhatsApp and Email dispute drafts are ready for dispatch in the Agentic Outbox.`;
-    } else if (qLower.includes('rate') || qLower.includes('kpi') || qLower.includes('metric')) {
-      answer += `**Pipeline Performance & Reconciliation KPIs:**\n`;
-      answer += `- **Reconciliation Rate**: ${contextSummary.matchRatePercent}%\n`;
-      answer += `- **Total Collections Reconciled**: ₹${totalCollected.toLocaleString('en-IN')} across ${contextSummary.reconciledTxnsCount} transactions\n`;
-      answer += `- **Active Self-Healing Rules**: ${contextSummary.activeRulesCount} vendor pattern rules\n`;
-      answer += `- **Pending Receivables**: ${contextSummary.unpaidInvoicesCount} invoices pending payment`;
-    } else {
-      answer += `**Current Financial Position Overview:**\n`;
-      answer += `- **Total Invoices Billed**: ₹${totalBilled.toLocaleString('en-IN')} (${contextSummary.totalInvoicesCount} invoices)\n`;
-      answer += `- **Total Bank Inflows Reconciled**: ₹${totalCollected.toLocaleString('en-IN')}\n`;
-      answer += `- **Unresolved Discrepancies (Outbox)**: ₹${totalExceptionsAmount.toLocaleString('en-IN')} (${contextSummary.exceptionsCount} transactions)\n`;
-      answer += `- **Open Invoices Receivable**: ${contextSummary.unpaidInvoicesCount} invoices\n\n`;
-      answer += `*You can ask me specific questions about TDS breakdowns, vendor exception reasons, cash forecasting, or rule cache efficiency.*`;
-    }
-
-    return res.json({ answer, context: contextSummary });
+    const agentResult = await runSettlementAgent(query);
+    return res.json(agentResult);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
