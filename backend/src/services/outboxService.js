@@ -53,24 +53,31 @@ Return a JSON object conforming strictly to this format:
 }`;
 
         const result = await textModel.generateContent(prompt);
+        console.log("Outbox content: ", result);
         const responseText = result.response.text().trim();
         
         // Clean markdown backticks if returned in code fence
         const cleanJsonStr = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
         const parsed = JSON.parse(cleanJsonStr);
 
+        const reasoning = parsed.aiReasoning || parsed.reasoning || `Discrepancy detected between invoice #${invNum} and bank credit.`;
+        const whatsappText = parsed.whatsappText || parsed.whatsapp || '';
+        const emailSubject = parsed.emailSubject || `[ACTION REQUIRED] Reconciliation Discrepancy: Invoice #${invNum}`;
+        const emailBody = parsed.emailBodyText || parsed.emailBody || '';
+
         return {
           source: 'GEMINI_1_5_FLASH_LIVE',
-          aiReasoning: parsed.aiReasoning,
-          whatsapp: {
-            recipient: customer,
-            channel: 'WHATSAPP',
-            messageText: parsed.whatsappText,
-          },
+          aiReasoning: reasoning,
+          reasoning: reasoning,
+          whatsappText: whatsappText,
+          whatsapp: whatsappText,
+          emailSubject: emailSubject,
+          emailBody: emailBody,
+          emailBodyText: emailBody,
           email: {
             recipientEmail: `finance@${(customer || 'company').toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
-            subject: parsed.emailSubject,
-            bodyText: parsed.emailBodyText,
+            subject: emailSubject,
+            bodyText: emailBody,
           },
         };
       } catch (err) {
@@ -94,11 +101,12 @@ Return a JSON object conforming strictly to this format:
     return {
       source: 'LOCAL_INTELLIGENT_ENGINE',
       aiReasoning: reasoning,
-      whatsapp: {
-        recipient: customer,
-        channel: 'WHATSAPP',
-        messageText: whatsappText,
-      },
+      reasoning: reasoning,
+      whatsappText: whatsappText,
+      whatsapp: whatsappText,
+      emailSubject: emailSubject,
+      emailBody: emailBodyText,
+      emailBodyText: emailBodyText,
       email: {
         recipientEmail: `finance@${(customer || 'company').toLowerCase().replace(/[^a-z0-9]/g, '')}.com`,
         subject: emailSubject,

@@ -92,11 +92,19 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
 
       if (res.ok) {
         const data = await res.json();
-        if (data.whatsapp) setWhatsappDraftText(data.whatsapp);
-        if (data.emailSubject) setEmailSubject(data.emailSubject);
-        if (data.emailBody) setEmailBodyText(data.emailBody);
-        if (data.reasoning) setAiReasoning(data.reasoning);
-        setAiSource(data.source);
+        const whatsappVal = typeof data.whatsapp === 'string' ? data.whatsapp : (data.whatsapp?.messageText || data.whatsappText || data.whatsappDraft);
+        if (whatsappVal) setWhatsappDraftText(whatsappVal);
+
+        const emailSub = data.emailSubject || data.email?.subject;
+        if (emailSub) setEmailSubject(emailSub);
+
+        const emailBody = data.emailBody || data.emailBodyText || data.email?.bodyText;
+        if (emailBody) setEmailBodyText(emailBody);
+
+        const reason = data.reasoning || data.aiReasoning;
+        if (reason) setAiReasoning(reason);
+
+        setAiSource(data.source || 'GEMINI_1_5_FLASH_LIVE');
       }
     } catch (e) {
       console.warn('Live AI Draft generation failed:', e);
