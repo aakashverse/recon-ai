@@ -7,9 +7,12 @@ import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
 import { RuleCache } from '../models/RuleCache.js';
 import { JournalEntry } from '../models/JournalEntry.js';
-import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, isAIAvailable } from '../config/ai.js';
+import multer from 'multer';
+import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, getGenAI, getActiveModelName, isAIAvailable } from '../config/ai.js';
 import { parseCSV, normalizeBankStatementRows, normalizeInvoiceRows } from '../utils/csvParser.js';
 import { runSettlementAgent } from '../services/settlementAgent.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 export const reconRouter = express.Router();
 
@@ -155,9 +158,9 @@ reconRouter.post('/ai-parse-and-structure', async (req, res) => {
       return res.status(400).json({ error: 'rawText is required' });
     }
 
-    const jsonModel = getGeminiModel() || getTextGenModel();
+    const model = getGeminiModel() || getTextGenModel();
 
-    if (isAIAvailable() && jsonModel) {
+    if (isAIAvailable() && model) {
       try {
         const prompt = `You are Razorpay's Enterprise AI Financial Data Structurer.
 Convert the following unstructured, messy financial text (which could be an email snippet, raw bank statement, check deposit log, or invoice list) into a clean, canonical JSON structure.
@@ -201,7 +204,7 @@ ${rawText}
 
 Return ONLY a valid JSON object without code blocks or markdown text.`;
 
-        const result = await textModel.generateContent(prompt);
+        const result = await model.generateContent(prompt);
         const responseText = result.response.text().trim();
         const cleanJsonStr = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
         const parsed = JSON.parse(cleanJsonStr);
@@ -228,6 +231,110 @@ Return ONLY a valid JSON object without code blocks or markdown text.`;
       type: targetType,
       records: normalized,
       message: `Parsed & structured ${normalized.length} records via intelligent local parser.`,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Item 7: Multimodal PDF & Scanned-Statement Ingestion
+ * Uses Gemini 1.5 Flash Vision to extract structured transaction rows from PDF / Image files
+ */
+reconRouter.post('/upload-multimodal-statement', upload.single('statementFile'), async (req, res) => {
+  try {
+    const file = req.file;
+    const targetType = req.body.targetType || 'BANK_TRANSACTIONS';
+
+    if (!file) {
+      return res.status(400).json({ error: 'statementFile is required (PDF, PNG, JPG, JPEG)' });
+    }
+
+    const genAI = getGenAI();
+    const activeModel = getActiveModelName();
+
+    if (isAIAvailable() && genAI) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: activeModel,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        });
+
+        const prompt = `You are an expert Indian B2B Banking Document OCR & Normalizer.
+Extract structured table records from this uploaded bank statement document / image.
+
+Target Schema: ${targetType === 'INVOICES' ? 'INVOICES' : 'BANK_TRANSACTIONS'}
+
+If Target is BANK_TRANSACTIONS, output JSON conforming strictly to:
+{
+  "type": "BANK_TRANSACTIONS",
+  "records": [
+    {
+      "bankTxnId": string,
+      "utrNumber": string,
+      "amount": number,
+      "narration": string,
+      "txnDate": "YYYY-MM-DD"
+    }
+  ]
+}
+
+If Target is INVOICES, output JSON conforming strictly to:
+{
+  "type": "INVOICES",
+  "records": [
+    {
+      "invoiceNumber": string,
+      "customerName": string,
+      "totalAmount": number,
+      "baseAmount": number,
+      "taxAmount": number,
+      "expectedTdsSection": "194C" | "194J" | "194H" | "194Q" | "NONE",
+      "expectedTdsRate": number
+    }
+  ]
+}
+
+Return ONLY valid JSON matching this schema.`;
+
+        const imagePart = {
+          inlineData: {
+            data: file.buffer.toString('base64'),
+            mimeType: file.mimetype || 'application/pdf',
+          },
+        };
+
+        const result = await model.generateContent([prompt, imagePart]);
+        const responseText = result.response.text().trim();
+        const cleanJsonStr = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+        const parsed = JSON.parse(cleanJsonStr);
+
+        return res.json({
+          success: true,
+          source: 'GEMINI_1_5_FLASH_MULTIMODAL_VISION',
+          type: parsed.type,
+          records: parsed.records || [],
+          message: `Extracted ${parsed.records?.length || 0} structured records from ${file.originalname} via Gemini 1.5 Flash Vision.`,
+        });
+      } catch (err) {
+        console.warn('[Multimodal OCR] Gemini Vision error, attempting local buffer parse:', err.message);
+      }
+    }
+
+    // Fallback: If text content is readable from buffer, parse heuristic lines
+    const textBuffer = file.buffer.toString('utf8');
+    const rows = parseCSV(textBuffer);
+    const normalized = targetType === 'INVOICES' ? normalizeInvoiceRows(rows) : normalizeBankStatementRows(rows);
+
+    return res.json({
+      success: true,
+      source: 'LOCAL_DOCUMENT_NORMALIZER',
+      type: targetType,
+      records: normalized,
+      message: `Extracted & normalized ${normalized.length} records from uploaded document.`,
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });

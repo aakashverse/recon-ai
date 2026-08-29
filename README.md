@@ -2,19 +2,9 @@
 > **Razorpay Buildathon Track-04 | AI Finance Controller ("Run the books and the cash position")**
 > *Architected after Rillet's AI-Native ERP: Automated Double-Entry Auto-Journaling, Zero-Day Continuous Close, Live Trial Balance, Indian Statutory Tax-Line Matching, SHA-256 Idempotency, ACID Multi-Doc Transactions, Zero-Trust Circuit Breakers, Cryptographic Merkle Hash Chains, and 94–100% Cost Reduction.*
 
----
-
-## 🦄 Architectural Comparison: Razorpay Recon AI vs Rillet ($100M Series C AI ERP)
-
-| Architectural Dimension | **Rillet** (US/Global SaaS ERP Unicorn) | **Razorpay Recon AI** (Track-04 AI Finance Controller) |
-| :--- | :--- | :--- |
-| **Core Value Proposition** | Zero-Day Month-End Close & AI-Native General Ledger. | **Continuous Zero-Day Close** + **Cascaded Deterministic/AI Engine**. |
-| **Auto-Journaling & GL** | Automated double-entry debits/credits generated from Stripe/Plaid feeds. | **Auto-posts balanced Double-Entry Journal Entries** (`#JE-...`) with `1010-BANK-CLEARING`, `1020-TDS-RECEIVABLE`, `1200-ACCOUNTS-RECEIVABLE`, `5010-GATEWAY-FEES`. |
-| **Tax-Line Matching** | US Sales Tax & General Withholding. | **Deep Indian Statutory Engine**: Section 194C, 194J, 194H, 194Q, 206AB Non-Filer, PSU GST-TDS Sec 51, and CBDT Circular 23/2017. |
-| **Audit Trail & Trust** | ERP change log & versioning. | **SHA-256 Cryptographic Merkle Hash Chain** ($H_i = \text{SHA256}(H_{i-1} + \dots)$) + Zero-Trust Circuit Breaker ($100.00\%$ Precision). |
-| **Exception Handling** | Human-in-the-loop email review. | **Agentic Outbox** with automated WhatsApp & Email dispute drafts + 1-click self-healing rule synthesis. |
-| **Live Financial Reports** | Real-time Trial Balance, P&L, and Cash Runway. | **Live Balanced Trial Balance**, **Days Sales Outstanding (DSO)**, **Settlement Q&A Agent**, and **30/60/90-Day Cash Forecaster**. |
-| **Source Traceability** | 1-Click drill-down to invoice/contract. | **100% Traceback AI Audit Memos**: Bank Line $\to$ Invoice $\to$ Statutory Deductions $\to$ Double-Entry GL $\to$ Merkle Hash. |
+[![CI Verification Suite](https://github.com/razorpay/recon-ai/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
+[![AI Decision Log](https://img.shields.io/badge/Architecture-AI_Decision_Log-blue.svg)](docs/AI_DECISIONS.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
 
 ---
 
@@ -22,10 +12,29 @@
 
 | Judging Axis | What We Built & Our Design Thesis | Live Proof / Verification Command |
 | :--- | :--- | :--- |
-| **1. Problem Taste** *(Did you pick something that matters?)* | Rather than building a narrow point-solution, we unified all **4 Track-04 Example Directions** under one verified pipeline: **Multi-Source Reconciliation**, **Tax-Line Matcher** (Statutory TDS 194C/194J/194H/206AB/GST-TDS), **Settlement Q&A Agent**, and **Forward 30/60/90-Day Cash Forecaster**. They all share the same data and the same verification bottleneck. | Open Dashboard: Click **"General Ledger & Close"** & **"AI Controller & Forecaster"**. |
-| **2. Build Quality** *(Does it run, is it structured, would you trust it?)* | Built on production ACID multi-document MongoDB transactions, deterministic SHA-256 idempotency guards, and an independent **Cryptographic Merkle Hash Chain** ($H_i = \text{SHA256}(H_{i-1} + \dots)$) that mathematically proves zero ledger tampering. Codebase is strictly modular with isolated, testable tier services. | Run benchmark & chain verifier:<br/>`npm run benchmark`<br/>`npm run verify-chain`<br/>`npm test` |
-| **3. AI Judgment** *(Right tool in right place, & where we chose NOT to use one)* | **Restraint-First Architecture**: ~85–90% of transactions resolve deterministically in <5ms ($0 API cost). GenAI is invoked *only* on the messy residual (OCR typos, unstructured text). **Deliberate Non-AI Decision**: We *never* use GenAI to verify compound arithmetic—we built a deterministic mathematical **Circuit Breaker** ($\text{Gross} - \text{Deductions} \equiv \text{BankReceived}$). | Inspect [`circuitBreaker.js`](backend/src/services/circuitBreaker.js) and [`tier4GenAIPool.js`](backend/src/services/tier4GenAIPool.js). |
-| **4. Failure Recovery** *(What broke, and what you did about it)* | Complete post-mortem paper trail documenting real engineering bugs discovered during hardening: mock vs live LLM latency disparity, discrepancy count drift, tier-1 blind amount hijacking, and live circuit breaker rejections of hallucinated LLM deductions. | See [Section 5: Known Failures & Post-Mortem Fixes](#5-known-failures-bugs-encountered--how-we-fixed-them). |
+| **1. Problem Taste** *(Did you pick something that matters?)* | Unified all **4 Track-04 Directions**: **Multi-Source Reconciliation**, **Statutory Tax-Line Matcher** (TDS 194C/194J/194H/206AB/GST-TDS), **Settlement Q&A Agent**, and **Forward 30/60/90-Day Cash Forecaster**. Plus **Multimodal PDF/Scanned Bank Statement OCR Ingestion**. | Open Dashboard: Click **"Real Data Ingestion Hub"**, **"General Ledger & Close"**, & **"AI Controller & Forecaster"**. |
+| **2. Build Quality** *(Does it run, is it structured, would you trust it?)* | Built on production ACID multi-doc transactions, deterministic SHA-256 idempotency, **Factual Ground-Truth Claim Validation Gate**, and an independent **Cryptographic Merkle Hash Chain** ($H_i = \text{SHA256}(H_{i-1} + \dots)$). **1-Command Setup** via Docker or setup scripts. | `docker-compose up`<br/>*or* `./setup.sh` / `setup.bat`<br/>`npm test` & `npm run eval-genai:mock` |
+| **3. AI Judgment** *(Right tool in right place, & where we chose NOT to use one)* | **Restraint-First Architecture**: ~85–90% of transactions resolve deterministically in <5ms ($0 API cost). GenAI is invoked *only* on unstructured residuals. **Never trust model arithmetic or ungrounded memory**: strictly gated by `Gross - Deductions ≡ BankReceived` and grounded tax rule tables. | Read [AI Decision Log (`docs/AI_DECISIONS.md`)](docs/AI_DECISIONS.md) and run `npm run eval-genai:mock`. |
+| **4. Failure Recovery** *(What broke, and what you did about it)* | Tested against real adversarial failure modes: **Adversarial Prompt Injection in Bank Narration** (`ATTACK-01`), **Simulated Total Gemini API Outage** (graceful non-blocking degradation), double-settlement race conditions, and Merkle chain tampering. | Run fault demo & adversarial suite:<br/>`npm test`<br/>`npm run fault-demo` |
+
+---
+
+## 🚀 1-Command Setup (For Judges & Developers)
+
+### Option A: Docker Compose (Zero Prerequisites)
+```bash
+docker-compose up --build
+```
+> Starts MongoDB, Backend API (`http://localhost:5000`), and Frontend UI (`http://localhost:5173`) with automated database seeding.
+
+### Option B: Local Native Setup (1-Command Script)
+```bash
+# Windows
+.\setup.bat
+
+# Linux / macOS
+chmod +x setup.sh && ./setup.sh
+```
 
 ---
 

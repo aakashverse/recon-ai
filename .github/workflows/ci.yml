@@ -1,0 +1,68 @@
+﻿name: Razorpay Recon AI — CI Verification Suite
+
+on:
+  push:
+    branches: [ "**" ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  verify:
+    name: Full Pipeline & Integrity Verification
+    runs-on: ubuntu-latest
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Install Root & Workspace Dependencies
+        run: |
+          npm install
+          npm install --prefix backend
+          npm install --prefix frontend
+
+      - name: 🧪 Run Unit Test Suite (7 Core Tests + Adversarial Tests)
+        run: npm test
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/razorpay_recon_ai_ci
+          MOCK_LLM: 'true'
+
+      - name: 📊 Run GenAI Standalone Eval Harness (12 Golden Cases)
+        run: npm run eval-genai:mock
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/razorpay_recon_ai_ci
+          MOCK_LLM: 'true'
+
+      - name: 🔄 Seed Database & Run 50-Transaction Benchmark
+        run: |
+          npm run seed
+          npm run benchmark
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/razorpay_recon_ai_ci
+          MOCK_LLM: 'true'
+
+      - name: 🛡️ Run Cryptographic Hash-Chain Verification
+        run: npm run verify-chain
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/razorpay_recon_ai_ci
+
+      - name: 💥 Run Fault-Injection & API Outage Recovery Test
+        run: npm run fault-demo
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/razorpay_recon_ai_ci
+          MOCK_LLM: 'true'
+
+      - name: 🏗️ Verify Frontend Production Bundle Build
+        run: npm run build

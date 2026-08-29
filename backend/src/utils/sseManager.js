@@ -60,6 +60,9 @@ class SSEManager {
         }
       }
     }, 15000);
+    if (this.heartbeatInterval.unref) {
+      this.heartbeatInterval.unref();
+    }
   }
 
   getClientCount() {

@@ -116,9 +116,9 @@ I have real-time access to your verified MongoDB ledger, statutory TDS withholdi
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
                 AI Finance Controller Studio
-                <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
+                {/* <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
                   Track-04 Complete Suite
-                </span>
+                </span> */}
               </h2>
               <p className="text-xs text-slate-400">
                 Settlement Q&A Assistant • Tax-Line Verifier • Forward 30/60/90-Day Cash Forecaster

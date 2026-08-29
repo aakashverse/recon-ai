@@ -32,9 +32,48 @@ INV-2024-8001,Reliance Retail Ltd,100000,84745.76,15254.24,194C,2
 INV-2024-8002,Tata Digital Services,250000,211864.41,38135.59,194J,10
 INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const isPdfOrImage =
+      file.type.includes('pdf') ||
+      file.type.includes('image') ||
+      /\.(pdf|png|jpe?g)$/i.test(file.name);
+
+    if (isPdfOrImage) {
+      setIsAIStructuring(true);
+      setFeedback({ type: 'info', message: `Analyzing ${file.name} with Gemini 1.5 Flash Vision OCR...` });
+      try {
+        const formData = new FormData();
+        formData.append('statementFile', file);
+        formData.append('targetType', activeTab);
+
+        const res = await fetch('/api/reconciliation/upload-multimodal-statement', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (res.ok && data.records?.length) {
+          setCsvContent(JSON.stringify(data.records, null, 2));
+          setFeedback({
+            type: 'success',
+            message: `✨ ${data.message || `Extracted ${data.records.length} records via Gemini Vision.`}`,
+          });
+        } else {
+          setFeedback({
+            type: 'error',
+            message: data.error || 'Failed to extract records from document.',
+          });
+        }
+      } catch (err) {
+        setFeedback({ type: 'error', message: `Vision Ingestion Error: ${err.message}` });
+      } finally {
+        setIsAIStructuring(false);
+      }
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -288,10 +327,10 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
           <label className="border-2 border-dashed border-slate-700 hover:border-razor-blue rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-950/40 hover:bg-slate-950/80 transition-all">
             <UploadCloud className="w-6 h-6 text-slate-400" />
             <div className="text-center">
-              <span className="text-razor-blue font-semibold">Click to browse file</span> or drag & drop CSV / JSON / Text here
+              <span className="text-razor-blue font-semibold">Click to browse file</span> or drag & drop CSV / JSON / PDF / Image here
             </div>
-            <span className="text-[10px] text-slate-500 font-mono">Supported formats: .csv, .txt, .json</span>
-            <input type="file" accept=".csv,.txt,.json" onChange={handleFileUpload} className="hidden" />
+            <span className="text-[10px] text-slate-400 font-mono">Supported: .csv, .json, .txt, .pdf (Scanned statements), .png, .jpg</span>
+            <input type="file" accept=".csv,.txt,.json,.pdf,.png,.jpg,.jpeg" onChange={handleFileUpload} className="hidden" />
           </label>
 
           {/* CSV Text Area Editor */}

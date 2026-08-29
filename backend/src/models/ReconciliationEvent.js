@@ -10,6 +10,7 @@ const dagNodeSchema = new mongoose.Schema(
         'STEP_TIER_1',
         'STEP_TIER_2',
         'STEP_TIER_3',
+        'STEP_FACTUAL_CLAIM_VALIDATION',
         'STEP_CIRCUIT_BREAKER',
         'STEP_COMMIT',
         'STEP_JOURNAL',

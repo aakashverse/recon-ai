@@ -358,14 +358,14 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                       <ExternalLink className="w-3 h-3" />
                       <span>Open in WhatsApp Web</span>
                     </a>
-                    <button
+                    {/* <button
                       onClick={() => handleServerDispatch('WHATSAPP')}
                       disabled={isSubmitting}
                       className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/40 font-semibold text-[11px] flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
                     >
-                      <Send className="w-3 h-3" />
-                      <span>Dispatch via API Relay</span>
-                    </button>
+                      {/* <Send className="w-3 h-3" /> */}
+                      {/* <span>Dispatch via API Relay</span> */}
+                    {/* </button> */}
                   </div>
                 </div>
                 <textarea
@@ -409,14 +409,14 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                       <ExternalLink className="w-3 h-3" />
                       <span>Open in Gmail Web</span>
                     </a>
-                    <button
+                    {/* <button 
                       onClick={() => handleServerDispatch('EMAIL')}
                       disabled={isSubmitting}
                       className="px-3 py-1 rounded bg-razor-blue hover:bg-razor-blueHover text-white font-semibold text-[11px] flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
                     >
-                      <Send className="w-3 h-3" />
-                      <span>Dispatch via SMTP Relay</span>
-                    </button>
+                      {/* <Send className="w-3 h-3" /> */}
+                      {/* <span>Dispatch via SMTP Relay</span> */}
+                    {/* </button> */}
                   </div>
                 </div>
                 <div className="space-y-2">

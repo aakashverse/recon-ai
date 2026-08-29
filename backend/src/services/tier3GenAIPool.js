@@ -239,8 +239,16 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
   };
 }
 
+// Bounded Timeout Helper (8000ms max per GenAI call to prevent hanging batches)
+function withTimeout(promise, ms = 8000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`GenAI API call timed out after ${ms}ms`)), ms)),
+  ]);
+}
+
 /**
- * Step 1 & Step 4: Executes Structured GenAI Worker with Retries & Rule Grounding
+ * Step 1 & Step 4: Executes Structured GenAI Worker with Retries, Grounding & Graceful Degradation
  */
 export async function executeGenAIWorker(bankTxn, options = {}, context = {}) {
   const narration = bankTxn.narration || '';
@@ -272,11 +280,11 @@ export async function executeGenAIWorker(bankTxn, options = {}, context = {}) {
     `- Rule ID: ${r.ruleId} | Section: ${r.section} | Rate: ${r.standardRate}% | Applies: ${r.description}`
   ).join('\n');
 
-  // 4. Live Gemini API Call with Structured Output Schema
+  // 4. Live Gemini API Call with Structured Output Schema & Graceful Degradation
   const genAI = getGenAI();
   const activeModel = getActiveModelName();
 
-  if (isAIAvailable() && genAI) {
+  if (isAIAvailable() && genAI && !options.forceApiFailure) {
     const structuredModel = genAI.getGenerativeModel({
       model: activeModel,
       generationConfig: {
@@ -326,9 +334,9 @@ REQUIREMENTS:
       return obj;
     };
 
-    // Attempt 1
+    // Attempt 1 (With Bounded 8000ms Timeout)
     try {
-      const res1 = await structuredModel.generateContent(basePrompt);
+      const res1 = await withTimeout(structuredModel.generateContent(basePrompt), 8000);
       const rawText1 = res1.response.text();
       const cleanJson1 = rawText1.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsed1 = JSON.parse(cleanJson1);
@@ -350,7 +358,7 @@ REQUIREMENTS:
 CRITICAL: Your previous response failed schema validation with error: ${err1.message}.
 Ensure matched_invoice_id, deduction_type, deduction_amount, remaining_balance, rule_id, confidence, and reasoning are valid JSON types. Output ONLY valid JSON.`;
 
-        const res2 = await structuredModel.generateContent(retryPrompt);
+        const res2 = await withTimeout(structuredModel.generateContent(retryPrompt), 8000);
         const rawText2 = res2.response.text();
         const cleanJson2 = rawText2.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
         const parsed2 = JSON.parse(cleanJson2);
@@ -363,17 +371,18 @@ Ensure matched_invoice_id, deduction_type, deduction_amount, remaining_balance, 
           ragCacheHit: false,
         };
       } catch (err2) {
-        console.error(`[GenAI Pool] Validation Attempt 2 failed: ${err2.message}. Routing to Exception Queue.`);
+        console.warn(`[GenAI Graceful Degradation] Gemini API call unavailable (${err2.message}). Failing over to local deterministic engine.`);
       }
     }
   }
 
-  // 5. Deterministic fallback on API / validation exhaustion
+  // 5. Graceful Degradation Fallback: Deterministic extractor prevents batch stalls
   const fallback = localIntelligentExtraction(narration, bankAmount, context);
   storeRAGCache(narration, fallback);
   return {
     ...GenAIExtractionOutputSchema.parse(fallback),
     ragCacheHit: false,
+    degradationFallback: true,
   };
 }
 
@@ -441,7 +450,7 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
         ragCacheHit,
         confidence: 0.3,
         durationMs,
-        reason: aiResult.reasoning || 'No open invoices found matching GenAI extracted entities.',
+        reason: `No open invoices found matching GenAI extracted identifier (${aiResult.matched_invoice_id || 'N/A'}).`,
       };
     }
 

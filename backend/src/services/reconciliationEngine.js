@@ -27,6 +27,63 @@ export async function resetChainPointer() {
   return { currentChainHash, currentChainIndex };
 }
 
+/**
+ * Step 2: Ground-Truth Factual Claim Validation Gate (v4 Addendum)
+ * Independently verifies that candidate invoices exist, are open (UNPAID/PARTIALLY_PAID),
+ * and match claimed counterparty entity before mathematical verification.
+ */
+export function validateFactualClaims(candidateInvoice, matchResult, ledgerDoc, splitInvoices = []) {
+  if (splitInvoices && splitInvoices.length >= 2) {
+    for (const inv of splitInvoices) {
+      if (!inv || !inv.invoiceNumber) {
+        return { valid: false, reason: 'Split invoice list contains invalid or non-existent record.' };
+      }
+      if (inv.status === 'PAID') {
+        return { valid: false, reason: `Split invoice ${inv.invoiceNumber} is already marked PAID in ledger.` };
+      }
+    }
+    return { valid: true };
+  }
+
+  if (!candidateInvoice) {
+    return { valid: false, reason: matchResult?.reason || 'No candidate invoice resolved.' };
+  }
+
+  // 1. Check Invoice Exists & Has Valid ID
+  if (!candidateInvoice.invoiceNumber || !candidateInvoice._id) {
+    return { valid: false, reason: 'Ground-truth failure: Candidate invoice does not exist in open ledger.' };
+  }
+
+  // 2. Check Open Status (Prevent double-matching / race conditions)
+  if (candidateInvoice.status === 'PAID' || candidateInvoice.status === 'CANCELLED') {
+    return {
+      valid: false,
+      reason: `Ground-truth failure: Invoice ${candidateInvoice.invoiceNumber} is already ${candidateInvoice.status}.`,
+    };
+  }
+
+  // 3. Check Vendor Entity Compatibility (if GenAI extracted a specific vendor claim)
+  const aiVendor = matchResult?.aiExtraction?.vendor_name;
+  if (aiVendor && candidateInvoice.customerName) {
+    const cleanAiVendor = aiVendor.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const cleanInvCustomer = candidateInvoice.customerName.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    const nonGenericAi = cleanAiVendor.replace(/PVTLTD|LTD|CORP|SERVICES|SOLUTIONS|ENTERPRISES|INDIA/g, '');
+    const nonGenericInv = cleanInvCustomer.replace(/PVTLTD|LTD|CORP|SERVICES|SOLUTIONS|ENTERPRISES|INDIA/g, '');
+
+    if (nonGenericAi.length >= 4 && nonGenericInv.length >= 4) {
+      if (!nonGenericAi.includes(nonGenericInv) && !nonGenericInv.includes(nonGenericAi)) {
+        return {
+          valid: false,
+          reason: `Ground-truth failure: GenAI claimed vendor "${aiVendor}" does not match ledger customer "${candidateInvoice.customerName}".`,
+        };
+      }
+    }
+  }
+
+  return { valid: true };
+}
+
 export class ReconciliationEngine {
   /**
    * Reconciles a single bank transaction through the 4-Tier Cascaded Pipeline
@@ -239,6 +296,32 @@ export class ReconciliationEngine {
           }
         }
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // 6.5. Independent Ground-Truth Factual Claim Validation Gate (v4 Addendum)
+    // -----------------------------------------------------------------------
+    const factualCheckStart = performance.now();
+    const factualClaimCheck = validateFactualClaims(
+      matchResult?.invoice,
+      matchResult,
+      ledgerDoc,
+      matchResult?.splitInvoices
+    );
+    const factualCheckDuration = performance.now() - factualCheckStart;
+
+    dagNodes.push({
+      nodeKey: 'STEP_FACTUAL_CLAIM_VALIDATION',
+      name: 'Ground-Truth Database Claim Validation',
+      status: factualClaimCheck.valid ? 'SUCCESS' : 'FAILED',
+      durationMs: factualCheckDuration,
+      outputData: factualClaimCheck,
+    });
+
+    if (!factualClaimCheck.valid && matchResult?.matched) {
+      matchResult.matched = false;
+      matchResult.reason = factualClaimCheck.reason;
+      resolvedTier = 'OUTBOX_EXCEPTION';
     }
 
     // -----------------------------------------------------------------------
