@@ -371,7 +371,12 @@ REQUIREMENTS:
           .replace(/^1NV/i, 'INV')
           .replace(/\b1NV\b/g, 'INV')
           .replace(/2O2/g, '202')
-          .replace(/IOO/g, '100');
+          .replace(/3OO/g, '300')
+          .replace(/4OO/g, '400')
+          .replace(/5OO/g, '500')
+          .replace(/IOO/g, '100')
+          .replace(/([0-9])O([0-9])/g, '$10$2')
+          .replace(/([0-9])OO([0-9])/g, '$100$2');
       }
       return obj;
     };
@@ -483,6 +488,32 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
       }
     }
 
+    // 2.5. Fallback search: Extract potential invoice candidate directly from bank narration text
+    if (!candidateInvoices.length) {
+      const normalizedNarration = (bankTxn.narration || '')
+        .toUpperCase()
+        .replace(/2O2/g, '202')
+        .replace(/3OO/g, '300')
+        .replace(/4OO/g, '400')
+        .replace(/5OO/g, '500')
+        .replace(/IOO/g, '100')
+        .replace(/([0-9])O([0-9])/g, '$10$2')
+        .replace(/([0-9])OO([0-9])/g, '$100$2');
+
+      const narrationInvMatch = normalizedNarration.match(/\b(?:INV|INVOICE)[-_/ ]*([0-9]{4}[-_/]?[0-9]+)\b/i);
+      if (narrationInvMatch) {
+        const cleanInvDigits = narrationInvMatch[1].replace(/[^0-9]/g, '');
+        if (context.allInvoices) {
+          candidateInvoices = context.allInvoices.filter((i) => i.status !== 'PAID' && i.invoiceNumber.replace(/[^0-9]/g, '').includes(cleanInvDigits));
+        } else {
+          candidateInvoices = await Invoice.find({
+            invoiceNumber: new RegExp(cleanInvDigits.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+            status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+          }).limit(5).lean();
+        }
+      }
+    }
+
     if (!candidateInvoices.length) {
       const durationMs = performance.now() - startTime;
       return {
@@ -501,10 +532,9 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
       const gross = Number(invoice.totalAmount);
       const base = Number(invoice.baseAmount || invoice.totalAmount / 1.18);
       const claimedDeduction = Number(aiResult.deduction_amount || 0);
-      const isBaseTds = aiResult.deduction_type?.includes('CBDT') || aiResult.rule_id === 'TDS-CBDT-23';
 
       // Check standard gross deduction match
-      if (Math.abs((gross - claimedDeduction) - bankAmount) < 0.50) {
+      if (claimedDeduction > 0 && Math.abs((gross - claimedDeduction) - bankAmount) < 0.50) {
         const durationMs = performance.now() - startTime;
         const ratePercent = gross > 0 ? Math.round((claimedDeduction / gross) * 100) : 0;
         return {
@@ -529,8 +559,8 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
         };
       }
 
-      // Check 10% / 2% rate extrapolation against gross
-      for (const rate of [10, 2, 5, 0.1, 20]) {
+      // Check standard statutory TDS rates against gross
+      for (const rate of [10, 2, 5, 0.1, 20, 1]) {
         const estTdsGross = (gross * rate) / 100;
         if (Math.abs((gross - estTdsGross) - bankAmount) < 0.50) {
           const durationMs = performance.now() - startTime;
@@ -544,8 +574,8 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
             deductions: {
               tdsAmount: Number(estTdsGross.toFixed(2)),
               tdsRate: rate,
-              tdsSection: rate === 10 ? '194J' : rate === 2 ? '194C' : rate === 5 ? '194H' : rate === 20 ? '206AB' : '194Q',
-              ruleId: rate === 10 ? 'TDS-194J' : rate === 2 ? 'TDS-194C' : rate === 5 ? 'TDS-194H' : rate === 20 ? 'TDS-206AB' : 'TDS-194Q',
+              tdsSection: rate === 10 ? '194J' : rate === 2 ? '194C' : rate === 5 ? '194H' : rate === 20 ? '206AB' : rate === 1 ? 'TCS_52' : '194Q',
+              ruleId: rate === 10 ? 'TDS-194J' : rate === 2 ? 'TDS-194C' : rate === 5 ? 'TDS-194H' : rate === 20 ? 'TDS-206AB' : rate === 1 ? 'TCS-52' : 'TDS-194Q',
               totalDeductions: Number(estTdsGross.toFixed(2)),
             },
             durationMs,
@@ -553,7 +583,7 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
           };
         }
 
-        // Check base TDS
+        // Check base TDS (CBDT Circular 23/2017)
         const estTdsBase = (base * rate) / 100;
         if (Math.abs((gross - estTdsBase) - bankAmount) < 0.50) {
           const durationMs = performance.now() - startTime;
@@ -573,6 +603,57 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
             },
             durationMs,
             matchType: 'GENAI_STRUCTURED_LLM_RESOLUTION_BASE_TDS',
+          };
+        }
+
+        // Check TDS + Wire Fee combo (e.g. 2% + 50)
+        for (const fee of [50, 100]) {
+          const combo = estTdsGross + fee;
+          if (Math.abs((gross - combo) - bankAmount) < 0.50) {
+            const durationMs = performance.now() - startTime;
+            return {
+              matched: true,
+              tier: 'TIER_3',
+              invoice,
+              aiExtraction: aiResult,
+              ragCacheHit,
+              confidence: ragCacheHit ? 0.92 : 0.84,
+              deductions: {
+                tdsAmount: Number(estTdsGross.toFixed(2)),
+                tdsRate: rate,
+                tdsSection: '194C_PLUS_FEE',
+                bankCharges: fee,
+                ruleId: 'TDS-194C',
+                totalDeductions: Number(combo.toFixed(2)),
+              },
+              durationMs,
+              matchType: 'GENAI_STRUCTURED_LLM_RESOLUTION_COMBO',
+            };
+          }
+        }
+      }
+
+      // Check Wire / Processing Fees
+      for (const fee of [50, 100, 150]) {
+        if (Math.abs((gross - fee) - bankAmount) < 0.50) {
+          const durationMs = performance.now() - startTime;
+          return {
+            matched: true,
+            tier: 'TIER_3',
+            invoice,
+            aiExtraction: aiResult,
+            ragCacheHit,
+            confidence: ragCacheHit ? 0.92 : 0.84,
+            deductions: {
+              tdsAmount: 0,
+              tdsRate: 0,
+              tdsSection: 'WIRE_FEE',
+              bankCharges: fee,
+              ruleId: 'FEE-WIRE-PG',
+              totalDeductions: fee,
+            },
+            durationMs,
+            matchType: 'GENAI_STRUCTURED_LLM_RESOLUTION_WIRE_FEE',
           };
         }
       }
