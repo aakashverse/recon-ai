@@ -14,7 +14,7 @@
     "fault-demo": "node scripts/fault-injection-demo.js",
     "eval-genai": "node scripts/eval-genai.js",
     "eval-genai:mock": "node scripts/eval-genai.js --mock-llm",
-    "test": "node --test test/adversarial.test.js test/tiers.test.js"
+    "test": "node --test test/adversarial.test.js test/tiers.test.js test/trust-governance.test.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

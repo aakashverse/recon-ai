@@ -45,14 +45,16 @@ export default function App() {
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
       const isMatched = t.reconciliationStatus === 'MATCHED';
+      const isProposed = t.reconciliationStatus === 'PROPOSED' || t.matchedTier === 'PROPOSED';
       const isException =
         t.reconciliationStatus === 'EXCEPTION' ||
         t.reconciliationStatus === 'DISCREPANCY' ||
         t.matchedTier === 'OUTBOX_EXCEPTION' ||
-        Boolean(t.discrepancyDetails && !isMatched);
+        Boolean(t.discrepancyDetails && !isMatched && !isProposed);
 
       // 1. Status & Tier filter
       if (statusFilter === 'MATCHED' && !isMatched) return false;
+      if (statusFilter === 'PROPOSED' && !isProposed) return false;
       if (statusFilter === 'EXCEPTION' && !isException) return false;
       if (statusFilter === 'TIER_1' && (t.matchedTier !== 'TIER_1' || !isMatched)) return false;
       if (statusFilter === 'TIER_2' && (t.matchedTier !== 'TIER_2' || !isMatched)) return false;

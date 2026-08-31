@@ -1,4 +1,4 @@
-﻿import { BankLedger } from '../models/BankLedger.js';
+import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
 import { RuleCache } from '../models/RuleCache.js';
@@ -90,6 +90,9 @@ export async function executeTool(name, args = {}) {
       utr: bankTxn.utrNumber,
       status: bankTxn.reconciliationStatus,
       resolvedTier: bankTxn.matchedTier || event?.resolvedTier || 'OUTBOX_EXCEPTION',
+      trustLevel: bankTxn.trustLevel || event?.trustLevel || 'UNRATED',
+      accountabilityStatement: bankTxn.accountabilityStatement || event?.accountabilityStatement || 'Automated match gated by zero-trust circuit breaker.',
+      confidenceLabel: bankTxn.confidenceLabel || (bankTxn.matchedTier === 'TIER_1' ? 'Verified (Exact Match)' : 'AI-Assisted — High Confidence'),
       confidence: bankTxn.confidenceScore,
       matchedInvoice: bankTxn.reconciledInvoiceId ? {
         invoiceNumber: bankTxn.reconciledInvoiceId.invoiceNumber,
@@ -273,6 +276,8 @@ export async function runSettlementAgent(query) {
       answer += `⚠️ **Notice**: ${evidence.error}`;
     } else {
       answer += `- **Status**: \`${evidence.status}\` (${evidence.resolvedTier})\n`;
+      answer += `- **Accountability**: *"${evidence.accountabilityStatement}"*\n`;
+      answer += `- **Confidence**: **${evidence.confidenceLabel}**\n`;
       answer += `- **Bank Amount Received**: ₹${Number(evidence.amount || 0).toLocaleString('en-IN')}\n`;
       answer += `- **UTR Number**: \`${evidence.utr}\`\n`;
       answer += `- **Raw Narration**: *"${evidence.narration}"*\n`;

@@ -109,6 +109,7 @@ export function RiskSlider({
         {[
           { key: 'ALL', label: 'All Records' },
           { key: 'MATCHED', label: 'Matched (Paid)' },
+          { key: 'PROPOSED', label: 'Review Queue (Proposed)' },
           { key: 'EXCEPTION', label: 'Discrepancies / Outbox' },
           { key: 'TIER_1', label: 'Tier 1 (Exact Match)' },
           { key: 'TIER_2', label: 'Tier 2 (Rules & Split)' },

@@ -11,6 +11,8 @@ import multer from 'multer';
 import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, getGenAI, getActiveModelName, isAIAvailable } from '../config/ai.js';
 import { parseCSV, normalizeBankStatementRows, normalizeInvoiceRows } from '../utils/csvParser.js';
 import { runSettlementAgent } from '../services/settlementAgent.js';
+import { JournalService } from '../services/journalService.js';
+import { calculateEventHash, GENESIS_HASH } from '../utils/hasher.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -480,6 +482,215 @@ reconRouter.post('/resolve-exception', async (req, res) => {
 });
 
 /**
+ * Confirm AI-Proposed Match (v5 Graduated Autonomy)
+ * Advances Rule trust level (FIRST_TIME -> CONFIRMED_ONCE -> PROVISIONAL_AUTO -> FULLY_TRUSTED)
+ * Commits invoice as PAID and appends hash-chained confirmation event.
+ */
+reconRouter.post('/confirm-proposal', async (req, res) => {
+  try {
+    const { bankTxnId, accountantNotes } = req.body;
+    if (!bankTxnId) return res.status(400).json({ error: 'bankTxnId is required' });
+
+    const bankTxn = await BankLedger.findOne({ bankTxnId });
+    if (!bankTxn) return res.status(404).json({ error: 'Bank transaction not found' });
+
+    const candidateInvoiceId = bankTxn.reconciledInvoiceId || bankTxn.proposalDetails?.proposedInvoiceId;
+    const candidateInvoice = candidateInvoiceId ? await Invoice.findById(candidateInvoiceId) : null;
+
+    if (candidateInvoice) {
+      candidateInvoice.status = 'PAID';
+      candidateInvoice.paidAmount = bankTxn.amount;
+      candidateInvoice.reconciledBankTxnId = bankTxn._id;
+      candidateInvoice.reconciledAt = new Date();
+      candidateInvoice.reconMethod = 'ACCOUNTANT_CONFIRMED';
+      await candidateInvoice.save();
+    }
+
+    bankTxn.reconciliationStatus = 'MATCHED';
+    bankTxn.matchedTier = 'ACCOUNTANT_CONFIRMED';
+    bankTxn.accountabilityStatement = 'Accountant confirmed — pattern promoted in trust hierarchy.';
+    await bankTxn.save();
+
+    // Graduate trust on any associated RuleCache rule
+    let rule = null;
+    if (candidateInvoice?.customerName) {
+      rule = await RuleCache.findOne({ partyIdentifier: candidateInvoice.customerName.toUpperCase() });
+      if (rule) {
+        await rule.graduateTrust();
+      }
+    }
+
+    // Post double-entry General Ledger entry
+    if (candidateInvoice) {
+      const journalDocData = JournalService.generateJournalEntry(bankTxn, candidateInvoice, {
+        matched: true,
+        deductions: bankTxn.deductionsApplied || {},
+      });
+      await JournalEntry.create([journalDocData]);
+    }
+
+    // Append cryptographic audit event to hash chain
+    const lastEvent = await ReconciliationEvent.findOne().sort({ chainIndex: -1 }).lean();
+    const previousEventHash = lastEvent?.eventHash || GENESIS_HASH;
+    const chainIndex = (lastEvent?.chainIndex || 0) + 1;
+
+    const eventHash = calculateEventHash(previousEventHash, {
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceNumber: candidateInvoice?.invoiceNumber || 'NONE',
+      resolvedTier: 'ACCOUNTANT_CONFIRMED',
+      bankAmount: bankTxn.amount,
+      circuitBreakerResult: { passed: true, equation: 'Accountant Sign-Off' },
+      batchId: 'MANUAL_GOVERNANCE',
+    });
+
+    const confirmationEvent = await ReconciliationEvent.create({
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceId: candidateInvoice?._id || null,
+      invoiceNumber: candidateInvoice?.invoiceNumber || 'NONE',
+      reconciliationStatus: 'MATCHED',
+      resolvedTier: 'ACCOUNTANT_CONFIRMED',
+      trustLevel: rule?.trustLevel || 'CONFIRMED_ONCE',
+      accountabilityStatement: 'Accountant confirmed — pattern promoted in trust hierarchy.',
+      bankAmount: bankTxn.amount,
+      confidenceScore: 1.0,
+      rawNarration: bankTxn.narration,
+      previousEventHash,
+      eventHash,
+      overrideDetails: { accountantNotes, confirmedAt: new Date() },
+    });
+
+    sseManager.broadcast('txn:confirmed', {
+      bankTxnId: bankTxn.bankTxnId,
+      status: 'MATCHED',
+      resolvedTier: 'ACCOUNTANT_CONFIRMED',
+      eventHash: confirmationEvent.eventHash,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Proposal confirmed and committed to General Ledger.',
+      bankTxn,
+      ruleTrustLevel: rule?.trustLevel || null,
+      eventHash: confirmationEvent.eventHash,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Override/Reject AI Match (v5 Trust & Governance)
+ * Downgrades Rule trust level, reverts invoice status, and records an immutable override event in the hash chain.
+ */
+reconRouter.post('/override-match', async (req, res) => {
+  try {
+    const { bankTxnId, reason, overrideInvoiceId } = req.body;
+    if (!bankTxnId) return res.status(400).json({ error: 'bankTxnId is required' });
+
+    const bankTxn = await BankLedger.findOne({ bankTxnId });
+    if (!bankTxn) return res.status(404).json({ error: 'Bank transaction not found' });
+
+    const originalProposal = {
+      reconciliationStatus: bankTxn.reconciliationStatus,
+      matchedTier: bankTxn.matchedTier,
+      reconciledInvoiceId: bankTxn.reconciledInvoiceId,
+      proposalDetails: bankTxn.proposalDetails,
+    };
+
+    // If previous invoice was marked PAID, revert it to UNPAID
+    if (bankTxn.reconciledInvoiceId) {
+      await Invoice.findByIdAndUpdate(bankTxn.reconciledInvoiceId, {
+        status: 'UNPAID',
+        paidAmount: 0,
+        reconciledBankTxnId: null,
+        reconciledAt: null,
+        reconMethod: null,
+      });
+    }
+
+    bankTxn.reconciliationStatus = 'OVERRIDDEN';
+    bankTxn.matchedTier = 'MANUAL';
+    bankTxn.reconciledInvoiceId = overrideInvoiceId || null;
+    bankTxn.accountabilityStatement = 'Accountant override logged — rule trust downgraded in ledger.';
+    bankTxn.overrideDetails = {
+      originalProposal,
+      accountantReason: reason || 'Accountant manual override',
+      overriddenBy: 'ACCOUNTANT_CONTROLLER',
+      overriddenAt: new Date(),
+    };
+    await bankTxn.save();
+
+    // If there is an associated RuleCache rule, downgrade its trust level
+    let rule = null;
+    if (originalProposal.reconciledInvoiceId) {
+      const inv = await Invoice.findById(originalProposal.reconciledInvoiceId).lean();
+      if (inv?.customerName) {
+        rule = await RuleCache.findOne({ partyIdentifier: inv.customerName.toUpperCase() });
+        if (rule) {
+          await rule.downgradeTrust();
+        }
+      }
+    }
+
+    // Append cryptographic audit event to hash chain
+    const lastEvent = await ReconciliationEvent.findOne().sort({ chainIndex: -1 }).lean();
+    const previousEventHash = lastEvent?.eventHash || GENESIS_HASH;
+    const chainIndex = (lastEvent?.chainIndex || 0) + 1;
+
+    const eventHash = calculateEventHash(previousEventHash, {
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceNumber: 'OVERRIDDEN',
+      resolvedTier: 'ACCOUNTANT_OVERRIDE',
+      bankAmount: bankTxn.amount,
+      circuitBreakerResult: { passed: false, equation: 'Accountant Manual Override' },
+      batchId: 'MANUAL_GOVERNANCE',
+    });
+
+    const overrideEvent = await ReconciliationEvent.create({
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceId: overrideInvoiceId || null,
+      invoiceNumber: 'OVERRIDDEN',
+      reconciliationStatus: 'OVERRIDDEN',
+      resolvedTier: 'ACCOUNTANT_OVERRIDE',
+      trustLevel: rule?.trustLevel || 'FIRST_TIME',
+      accountabilityStatement: 'Accountant override logged — rule trust downgraded in ledger.',
+      bankAmount: bankTxn.amount,
+      confidenceScore: 1.0,
+      rawNarration: bankTxn.narration,
+      previousEventHash,
+      eventHash,
+      overrideDetails: {
+        originalProposal,
+        accountantReason: reason || 'Accountant manual override',
+        overriddenBy: 'ACCOUNTANT_CONTROLLER',
+        overriddenAt: new Date(),
+      },
+    });
+
+    sseManager.broadcast('txn:overridden', {
+      bankTxnId: bankTxn.bankTxnId,
+      status: 'OVERRIDDEN',
+      resolvedTier: 'ACCOUNTANT_OVERRIDE',
+      eventHash: overrideEvent.eventHash,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Transaction overridden and recorded in cryptographic hash chain.',
+      bankTxn,
+      ruleTrustLevel: rule?.trustLevel || null,
+      eventHash: overrideEvent.eventHash,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * Get Live Dashboard Metrics & Analytics
  */
 reconRouter.get('/stats', async (req, res) => {
@@ -487,6 +698,7 @@ reconRouter.get('/stats', async (req, res) => {
     const [
       totalLedgerCount,
       matchedCount,
+      proposedCount,
       exceptionCount,
       unprocessedCount,
       tier1Count,
@@ -498,6 +710,7 @@ reconRouter.get('/stats', async (req, res) => {
     ] = await Promise.all([
       BankLedger.countDocuments(),
       BankLedger.countDocuments({ reconciliationStatus: 'MATCHED' }),
+      BankLedger.countDocuments({ reconciliationStatus: 'PROPOSED' }),
       BankLedger.countDocuments({ reconciliationStatus: 'EXCEPTION' }),
       BankLedger.countDocuments({ reconciliationStatus: 'UNPROCESSED' }),
       BankLedger.countDocuments({ matchedTier: 'TIER_1' }),
@@ -535,6 +748,7 @@ reconRouter.get('/stats', async (req, res) => {
     return res.json({
       totalTransactions: totalLedgerCount,
       matchedCount,
+      proposedCount,
       exceptionCount,
       unprocessedCount,
       matchRatePercent,
@@ -582,12 +796,15 @@ reconRouter.get('/export-audit', async (req, res) => {
       'Bank Amount (INR)',
       'Status',
       'Resolution Tier',
+      'Trust Level',
+      'Accountability Statement',
       'Reconciled Invoice Number',
       'Invoice Gross (INR)',
       'Deductions Total (INR)',
       'Circuit Breaker Equation',
       'Confidence Score',
       'RAG Cache Hit',
+      'Override / Confirmation Notes',
       'Execution Latency (ms)',
       'Raw Narration',
     ];
@@ -598,21 +815,26 @@ reconRouter.get('/export-audit', async (req, res) => {
       const deductions = e.circuitBreakerResult?.deductionsTotal || 0;
       const cbEq = `"${(e.circuitBreakerResult?.equation || '').replace(/"/g, '""')}"`;
       const narration = `"${(e.rawNarration || '').replace(/"/g, '""')}"`;
+      const accountability = `"${(e.accountabilityStatement || '').replace(/"/g, '""')}"`;
+      const notes = `"${(e.overrideDetails?.accountantReason || e.overrideDetails?.accountantNotes || '').replace(/"/g, '""')}"`;
 
       return [
         e.eventHash,
         e.previousEventHash || 'GENESIS',
         e.bankTxnId,
         new Date(e.createdAt).toISOString(),
-        e.circuitBreakerResult?.bankReceived || 0,
-        e.resolvedTier === 'OUTBOX_EXCEPTION' ? 'EXCEPTION' : 'MATCHED',
+        e.circuitBreakerResult?.bankReceived || e.bankAmount || 0,
+        e.reconciliationStatus || (e.resolvedTier === 'OUTBOX_EXCEPTION' ? 'EXCEPTION' : 'MATCHED'),
         e.resolvedTier,
+        e.trustLevel || 'UNRATED',
+        accountability,
         invNum,
         gross,
         deductions,
         cbEq,
         e.confidence,
         e.ragCacheHit ? 'YES' : 'NO',
+        notes,
         e.totalDurationMs ? Number(e.totalDurationMs.toFixed(1)) : '<1',
         narration,
       ].join(',');
@@ -636,6 +858,7 @@ reconRouter.get('/feed', async (req, res) => {
     const limit = parseInt(req.query.limit || '100', 10);
     const feed = await BankLedger.find()
       .populate('reconciledInvoiceId')
+      .populate('splitInvoices.invoiceId')
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();

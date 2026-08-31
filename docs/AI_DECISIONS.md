@@ -1,4 +1,4 @@
-﻿# Razorpay Recon AI — AI Decision Log
+# Razorpay Recon AI — AI Decision Log
 
 > **Judging Alignment**: *AI Judgment — The right tool in the right place, and where you chose not to use one.*
 
@@ -21,6 +21,8 @@ This document records the explicit architectural decisions made in Razorpay Reco
 | **9** | **Audit Trail & Idempotency** | **Yes** — AI generated ledger logs. | **Cryptographic SHA-256 Merkle-Style Hash Chain (`hasher.js`)** | Audit records require tamper-evident mathematical immutability for statutory compliance (Companies Act / SOX). Hash chaining guarantees cryptographically verifiable ledger history. |
 | **10** | **Discrepancy Dispute Drafting** | **No** — Fixed rigid static templates. | **Live Contextual GenAI Drafting (Agentic Outbox)** | Communicating with counterparties requires context, tone, and empathy. Gemini 1.5 Flash generates tailored WhatsApp & formal Email drafts explaining specific statutory variances. |
 | **11** | **Settlement Q&A Assistant** | **Yes** — RAG embedding search over conversational text. | **Function-Calling Agent with Verified Tool Handlers (`settlementAgent.js`)** | To prevent financial hallucinations in conversational queries, Gemini executes verified database tools (`getTransactionEvidence`, `getVendorRuleHistory`, `computeDelta`) before synthesizing answers. |
+| **12** | **Autonomy & Ledger Posting** | **Yes** — Uniform auto-commit across all tiers. | **Graduated Autonomy State Machine (`RuleCache.js`)** | Inference-based matches (Tiers 2–4) default to `PROPOSED` review state until clean accountant confirmations earn `FULLY_TRUSTED` promotion. A single override immediately demotes trust level. |
+| **13** | **PII & Data Privacy** | **Yes** — Passing raw narration text directly to API. | **Regex-Based Redaction Pre-API Pass (`tier3GenAIPool.js`)** | To prevent personal identifiers (PANs, Aadhaar, bank accounts) from leaking across the model boundary, regex sanitizers mask sensitive tokens prior to API dispatch. |
 
 ---
 

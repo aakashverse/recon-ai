@@ -12,6 +12,7 @@ import { JournalService } from './journalService.js';
 import { OutboxService } from './outboxService.js';
 import { withTransaction } from '../config/db.js';
 import { sseManager } from '../utils/sseManager.js';
+import { getAccountabilityStatement, getPlainLanguageConfidence } from '../utils/accountabilityFormatters.js';
 
 // Batch-level cost tracking map
 const batchCostTracker = new Map();
@@ -365,6 +366,43 @@ export class ReconciliationEngine {
     const commitStart = performance.now();
     const isReconciled = Boolean(matchResult?.matched && circuitBreakerResult?.passed);
 
+    // Graduated Autonomy & Governance Layer (v5 Trust Layer)
+    let trustLevel = null;
+    let isProposed = false;
+
+    if (isReconciled && candidateInvoice) {
+      if (resolvedTier === 'TIER_1') {
+        trustLevel = 'EXACT_VERIFIED';
+        isProposed = false;
+      } else {
+        const ruleId = matchResult?.deductions?.ruleId || matchResult?.ruleId;
+        const matchedRule = matchResult?.rule;
+        const ruleTrust = matchedRule?.trustLevel || (ruleId ? 'PROVISIONAL_AUTO' : 'FIRST_TIME');
+
+        if (options.graduatedAutonomy === true) {
+          if (ruleTrust === 'FULLY_TRUSTED' || ruleTrust === 'PROVISIONAL_AUTO') {
+            trustLevel = ruleTrust;
+            isProposed = false;
+          } else {
+            trustLevel = ruleTrust;
+            isProposed = true;
+          }
+        } else {
+          trustLevel = ruleTrust;
+          isProposed = false;
+        }
+      }
+    }
+
+    const accountabilityStatement = getAccountabilityStatement(
+      isProposed ? 'PROPOSED' : (isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION'),
+      trustLevel,
+      circuitBreakerResult,
+      isProposed
+    );
+    const confObj = getPlainLanguageConfidence(matchResult?.confidence || (candidateInvoice ? 0.35 : 0.18), resolvedTier);
+    const confidenceLabel = confObj.label;
+
     let whatsappDraft = null;
     let emailDraft = null;
     let createdEvent = null;
@@ -376,99 +414,145 @@ export class ReconciliationEngine {
 
     await withTransaction(async (session) => {
       if (isReconciled && candidateInvoice) {
-        // Mark candidate invoice as in-memory PAID to prevent race conditions
-        candidateInvoice.status = 'PAID';
-        if (splitInvoices?.length) {
-          for (const s of splitInvoices) {
-            if (context.invoiceByNumber) {
-              const inv = context.invoiceByNumber.get(s.invoiceNumber?.toUpperCase());
-              if (inv) inv.status = 'PAID';
+        if (!isProposed) {
+          // Mark candidate invoice as in-memory PAID to prevent race conditions
+          candidateInvoice.status = 'PAID';
+          if (splitInvoices?.length) {
+            for (const s of splitInvoices) {
+              if (context.invoiceByNumber) {
+                const inv = context.invoiceByNumber.get(s.invoiceNumber?.toUpperCase());
+                if (inv) inv.status = 'PAID';
+              }
             }
           }
-        }
 
-        // Update Bank Ledger
-        ledgerDoc.reconciliationStatus = 'MATCHED';
-        ledgerDoc.matchedTier = resolvedTier;
-        ledgerDoc.reconciledInvoiceId = candidateInvoice._id;
-        ledgerDoc.splitInvoices = splitInvoices;
-        ledgerDoc.confidenceScore = matchResult.confidence || 1.0;
-        ledgerDoc.deductionsApplied = matchResult.deductions || {};
-        ledgerDoc.executionMetrics = {
-          tier1DurationMs: Number(tier1Duration.toFixed(2)),
-          tier2DurationMs: Number(tier2Duration.toFixed(2)),
-          tier3DurationMs: Number(tier3Duration.toFixed(2)),
-          circuitBreakerDurationMs: Number(cbDuration.toFixed(2)),
-          totalDurationMs: Number((performance.now() - totalStart).toFixed(2)),
-          ragCacheHit,
-          splitMatchCount: splitInvoices.length,
-        };
-        await ledgerDoc.save({ session });
+          // Update Bank Ledger (Auto-Committed)
+          ledgerDoc.reconciliationStatus = 'MATCHED';
+          ledgerDoc.matchedTier = resolvedTier;
+          ledgerDoc.reconciledInvoiceId = candidateInvoice._id;
+          ledgerDoc.splitInvoices = splitInvoices;
+          ledgerDoc.confidenceScore = matchResult.confidence || 1.0;
+          ledgerDoc.trustLevel = trustLevel;
+          ledgerDoc.accountabilityStatement = accountabilityStatement;
+          ledgerDoc.confidenceLabel = confidenceLabel;
+          ledgerDoc.deductionsApplied = matchResult.deductions || {};
+          ledgerDoc.executionMetrics = {
+            tier1DurationMs: Number(tier1Duration.toFixed(2)),
+            tier2DurationMs: Number(tier2Duration.toFixed(2)),
+            tier3DurationMs: Number(tier3Duration.toFixed(2)),
+            circuitBreakerDurationMs: Number(cbDuration.toFixed(2)),
+            totalDurationMs: Number((performance.now() - totalStart).toFixed(2)),
+            ragCacheHit,
+            splitMatchCount: splitInvoices.length,
+          };
+          await ledgerDoc.save({ session });
 
-        // Update Invoices
-        if (splitInvoices.length >= 2) {
-          const splitIds = splitInvoices.map((i) => i.invoiceId);
-          await Invoice.updateMany(
-            { _id: { $in: splitIds } },
-            {
-              $set: {
-                status: 'PAID',
-                reconciledBankTxnId: ledgerDoc._id,
-                reconciledAt: new Date(),
-                reconMethod: 'TIER_2_SPLIT_MATCH',
+          // Update Invoices
+          if (splitInvoices.length >= 2) {
+            const splitIds = splitInvoices.map((i) => i.invoiceId);
+            await Invoice.updateMany(
+              { _id: { $in: splitIds } },
+              {
+                $set: {
+                  status: 'PAID',
+                  reconciledBankTxnId: ledgerDoc._id,
+                  reconciledAt: new Date(),
+                  reconMethod: 'TIER_2_SPLIT_MATCH',
+                },
               },
+              { session }
+            );
+          } else {
+            await Invoice.updateOne(
+              { _id: candidateInvoice._id },
+              {
+                $set: {
+                  status: 'PAID',
+                  paidAmount: ledgerDoc.amount,
+                  reconciledBankTxnId: ledgerDoc._id,
+                  reconciledAt: new Date(),
+                  reconMethod:
+                    resolvedTier === 'TIER_1'
+                      ? 'TIER_1_EXACT'
+                      : resolvedTier === 'TIER_2'
+                      ? 'TIER_2_TOLERANCE'
+                      : 'TIER_3_GENAI',
+                },
+              },
+              { session }
+            );
+          }
+
+          // Generate Rillet-Style Double-Entry Journal Entry
+          const journalDocData = JournalService.generateJournalEntry(ledgerDoc, candidateInvoice, matchResult);
+          await JournalEntry.create([journalDocData], { session });
+
+          dagNodes.push({
+            nodeKey: 'STEP_COMMIT',
+            name: 'ACID Multi-Doc Commit (PAID)',
+            status: 'SUCCESS',
+            durationMs: performance.now() - commitStart,
+          });
+
+          dagNodes.push({
+            nodeKey: 'STEP_JOURNAL',
+            name: `General Ledger Auto-Journal (${journalDocData.journalEntryNumber})`,
+            status: 'BALANCED',
+            durationMs: 1.2,
+            outputData: {
+              journalEntryNumber: journalDocData.journalEntryNumber,
+              totalDebit: journalDocData.totalDebit,
+              totalCredit: journalDocData.totalCredit,
+              auditMemo: journalDocData.auditMemo?.summary,
             },
-            { session }
-          );
+          });
         } else {
-          await Invoice.updateOne(
-            { _id: candidateInvoice._id },
-            {
-              $set: {
-                status: 'PAID',
-                paidAmount: ledgerDoc.amount,
-                reconciledBankTxnId: ledgerDoc._id,
-                reconciledAt: new Date(),
-                reconMethod:
-                  resolvedTier === 'TIER_1'
-                    ? 'TIER_1_EXACT'
-                    : resolvedTier === 'TIER_2'
-                    ? 'TIER_2_TOLERANCE'
-                    : 'TIER_3_GENAI',
-              },
+          // PROPOSED State: Awaiting Accountant Sign-Off
+          ledgerDoc.reconciliationStatus = 'PROPOSED';
+          ledgerDoc.matchedTier = 'PROPOSED';
+          ledgerDoc.reconciledInvoiceId = candidateInvoice._id;
+          ledgerDoc.splitInvoices = splitInvoices;
+          ledgerDoc.confidenceScore = matchResult.confidence || 0.85;
+          ledgerDoc.trustLevel = trustLevel;
+          ledgerDoc.accountabilityStatement = accountabilityStatement;
+          ledgerDoc.confidenceLabel = confidenceLabel;
+          ledgerDoc.proposalDetails = {
+            proposedInvoiceId: candidateInvoice._id,
+            proposedInvoiceNumber: candidateInvoice.invoiceNumber,
+            proposedTier: resolvedTier,
+            proposedAt: new Date(),
+          };
+          ledgerDoc.deductionsApplied = matchResult.deductions || {};
+          ledgerDoc.executionMetrics = {
+            tier1DurationMs: Number(tier1Duration.toFixed(2)),
+            tier2DurationMs: Number(tier2Duration.toFixed(2)),
+            tier3DurationMs: Number(tier3Duration.toFixed(2)),
+            circuitBreakerDurationMs: Number(cbDuration.toFixed(2)),
+            totalDurationMs: Number((performance.now() - totalStart).toFixed(2)),
+            ragCacheHit,
+            splitMatchCount: splitInvoices.length,
+          };
+          await ledgerDoc.save({ session });
+
+          dagNodes.push({
+            nodeKey: 'STEP_COMMIT',
+            name: 'Proposal Generated (Awaiting Sign-Off)',
+            status: 'SUCCESS',
+            durationMs: performance.now() - commitStart,
+            outputData: {
+              status: 'PROPOSED',
+              accountability: accountabilityStatement,
             },
-            { session }
-          );
+          });
         }
-
-        // Generate Rillet-Style Double-Entry Journal Entry
-        const journalDocData = JournalService.generateJournalEntry(ledgerDoc, candidateInvoice, matchResult);
-        await JournalEntry.create([journalDocData], { session });
-
-        dagNodes.push({
-          nodeKey: 'STEP_COMMIT',
-          name: 'ACID Multi-Doc Commit (PAID)',
-          status: 'SUCCESS',
-          durationMs: performance.now() - commitStart,
-        });
-
-        dagNodes.push({
-          nodeKey: 'STEP_JOURNAL',
-          name: `General Ledger Auto-Journal (${journalDocData.journalEntryNumber})`,
-          status: 'BALANCED',
-          durationMs: 1.2,
-          outputData: {
-            journalEntryNumber: journalDocData.journalEntryNumber,
-            totalDebit: journalDocData.totalDebit,
-            totalCredit: journalDocData.totalCredit,
-            auditMemo: journalDocData.auditMemo?.summary,
-          },
-        });
       } else {
         // Exception / Flag for Human Review
         ledgerDoc.reconciliationStatus = 'EXCEPTION';
         ledgerDoc.matchedTier = null;
         ledgerDoc.confidenceScore = matchResult?.confidence || (candidateInvoice ? 0.35 : 0.18);
+        ledgerDoc.trustLevel = null;
+        ledgerDoc.accountabilityStatement = accountabilityStatement;
+        ledgerDoc.confidenceLabel = confidenceLabel;
         ledgerDoc.discrepancyDetails = {
           expectedAmount: candidateInvoice ? candidateInvoice.totalAmount : null,
           actualReceived: ledgerDoc.amount,
@@ -507,11 +591,13 @@ export class ReconciliationEngine {
       const eventTimestamp = new Date();
       const chainIndex = ++currentChainIndex;
       const finalInvoiceNumber = candidateInvoice?.invoiceNumber || (splitInvoices?.length ? splitInvoices.map((s) => s.invoiceNumber).join('+') : 'NONE');
+      const resolvedEventTier = isProposed ? 'PROPOSED' : (isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION');
+
       const eventHash = calculateEventHash(previousEventHash, {
         chainIndex,
         bankTxnId: ledgerDoc.bankTxnId,
         invoiceNumber: finalInvoiceNumber,
-        resolvedTier: isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION',
+        resolvedTier: resolvedEventTier,
         bankAmount: ledgerDoc.amount,
         circuitBreakerResult,
         batchId,
@@ -527,7 +613,9 @@ export class ReconciliationEngine {
             invoiceNumber: finalInvoiceNumber,
             splitInvoices: splitInvoices.map((s) => ({ invoiceId: s.invoiceId, invoiceNumber: s.invoiceNumber, amount: s.amount })),
             reconciliationStatus: ledgerDoc.reconciliationStatus,
-            resolvedTier: isReconciled ? resolvedTier : 'OUTBOX_EXCEPTION',
+            resolvedTier: resolvedEventTier,
+            trustLevel,
+            accountabilityStatement,
             confidenceScore: ledgerDoc.confidenceScore,
             bankAmount: ledgerDoc.amount,
             deductionsApplied: ledgerDoc.deductionsApplied,
@@ -558,16 +646,19 @@ export class ReconciliationEngine {
 
     // 9. Broadcast real-time SSE event
     if (isReconciled) {
-      sseManager.broadcast('txn:reconciled', {
+      sseManager.broadcast(isProposed ? 'txn:proposed' : 'txn:reconciled', {
         bankTxnId: ledgerDoc.bankTxnId,
         utrNumber: ledgerDoc.utrNumber,
         narration: ledgerDoc.narration,
         invoiceNumber: candidateInvoice?.invoiceNumber,
         customerName: candidateInvoice?.customerName,
-        matchedTier: resolvedTier,
+        matchedTier: isProposed ? 'PROPOSED' : resolvedTier,
+        trustLevel,
+        accountabilityStatement,
+        confidenceLabel,
+        isProposed,
         amount: ledgerDoc.amount,
         deductions: ledgerDoc.deductionsApplied,
-        circuitBreaker: circuitBreakerResult,
         confidence: ledgerDoc.confidenceScore,
         ragCacheHit,
         eventHash: createdEvent?.eventHash,

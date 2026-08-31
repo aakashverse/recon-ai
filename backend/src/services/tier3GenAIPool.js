@@ -47,6 +47,23 @@ export const GEMINI_RESPONSE_SCHEMA = {
 };
 
 /**
+ * Redacts potential PII (PAN numbers, Aadhaar patterns, private bank account numbers, emails)
+ * before passing untrusted narration text across the GenAI API boundary.
+ */
+export function maskPIIInNarration(narration) {
+  if (!narration || typeof narration !== 'string') return '';
+  return narration
+    // Mask Indian PAN (e.g. ABCDE1234F -> [REDACTED_PAN])
+    .replace(/\b[A-Z]{5}[0-9]{4}[A-Z]\b/gi, '[REDACTED_PAN]')
+    // Mask Aadhaar patterns (12 digits with optional spaces/hyphens)
+    .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, '[REDACTED_AADHAAR]')
+    // Mask Email addresses
+    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[REDACTED_EMAIL]')
+    // Mask Long Account Numbers (9 to 18 consecutive digits, avoiding invoice numbers like INV-2024-...)
+    .replace(/\b(?<!INV[-\w]*)\d{10,18}\b/gi, '[REDACTED_ACCT]');
+}
+
+/**
  * Normalizes narrations into a structural fingerprint for fuzzy RAG caching
  */
 export function computeNarrationFingerprint(narration) {
@@ -302,7 +319,7 @@ GROUNDED TAX RULE KNOWLEDGE BASE (Use ONLY these Rule IDs if applicable):
 ${taxGroundingContext}
 
 TRANSACTION DATA:
-- Narration: "${narration}"
+- Narration: "${maskPIIInNarration(narration)}"
 - Bank Received Amount: ₹${bankAmount}
 
 REQUIREMENTS:

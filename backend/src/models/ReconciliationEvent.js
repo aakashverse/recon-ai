@@ -69,8 +69,35 @@ const reconciliationEventSchema = new mongoose.Schema(
     dagNodes: [dagNodeSchema],
     resolvedTier: {
       type: String,
-      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'OUTBOX_EXCEPTION', 'DUPLICATE_REJECTED'],
+      enum: [
+        'TIER_1',
+        'TIER_2',
+        'TIER_3',
+        'OUTBOX_EXCEPTION',
+        'DUPLICATE_REJECTED',
+        'PROPOSED',
+        'ACCOUNTANT_CONFIRMED',
+        'ACCOUNTANT_OVERRIDE',
+      ],
       required: true,
+    },
+    reconciliationStatus: {
+      type: String,
+      enum: ['MATCHED', 'PROPOSED', 'EXCEPTION', 'FLAGGED_FOR_HUMAN', 'OVERRIDDEN'],
+      default: 'MATCHED',
+    },
+    trustLevel: {
+      type: String,
+      enum: ['FIRST_TIME', 'CONFIRMED_ONCE', 'PROVISIONAL_AUTO', 'FULLY_TRUSTED', 'EXACT_VERIFIED', null],
+      default: null,
+    },
+    accountabilityStatement: {
+      type: String,
+      default: '',
+    },
+    overrideDetails: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
     },
     bankAmount: {
       type: Number,

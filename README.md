@@ -1,6 +1,9 @@
-# Razorpay Recon AI — Enterprise-Grade B2B AI Finance Controller
+# Razorpay Recon AI — B2B AI Finance Controller & Glass-Box Ledger
 > **Razorpay Buildathon Track-04 | AI Finance Controller ("Run the books and the cash position")**
-> *Architected after Rillet's AI-Native ERP: Automated Double-Entry Auto-Journaling, Zero-Day Continuous Close, Live Trial Balance, Indian Statutory Tax-Line Matching, SHA-256 Idempotency, ACID Multi-Doc Transactions, Zero-Trust Circuit Breakers, Cryptographic Merkle Hash Chains, and 94–100% Cost Reduction.*
+> *A Glass-Box AI Finance Controller: Automated Double-Entry Auto-Journaling, Zero-Day Continuous Close, Live Trial Balance, Indian Statutory Tax-Line Matching, SHA-256 Idempotency, ACID Multi-Doc Transactions, Zero-Trust Circuit Breakers, Graduated Autonomy State Machine, and Cryptographic Hash Chains.*
+
+> [!IMPORTANT]
+> **Core Design Philosophy**: This system is built to **augment accountant judgment, not replace it**. Automation does not eliminate human responsibility—it intensifies the need for legible controls, transparent provenance, and honest failure declaration. The system flags novel, ambiguous, or unconfirmed patterns honestly rather than forcing an autonomous resolution, and leaves final accounting accountability with the controller.
 
 [![CI Verification Suite](https://github.com/razorpay/recon-ai/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![AI Decision Log](https://img.shields.io/badge/Architecture-AI_Decision_Log-blue.svg)](docs/AI_DECISIONS.md)
@@ -12,10 +15,10 @@
 
 | Judging Axis | What We Built & Our Design Thesis | Live Proof / Verification Command |
 | :--- | :--- | :--- |
-| **1. Problem Taste** *(Did you pick something that matters?)* | Unified all **4 Track-04 Directions**: **Multi-Source Reconciliation**, **Statutory Tax-Line Matcher** (TDS 194C/194J/194H/206AB/GST-TDS), **Settlement Q&A Agent**, and **Forward 30/60/90-Day Cash Forecaster**. Plus **Multimodal PDF/Scanned Bank Statement OCR Ingestion**. | Open Dashboard: Click **"Real Data Ingestion Hub"**, **"General Ledger & Close"**, & **"AI Controller & Forecaster"**. |
+| **1. Problem Taste** *(Did you pick something that matters?)* | Unified all **4 Track-04 Directions**: **Multi-Source Reconciliation**, **Statutory Tax-Line Matcher** (TDS 194C/194J/194H/206AB/GST-TDS), **Settlement Q&A Agent**, and **Forward 30/60/90-Day Cash Forecaster**. Plus **Multimodal PDF/Scanned Bank Statement OCR Ingestion** and **Graduated Autonomy Review Queue**. | Open Dashboard: Click **"Real Data Ingestion Hub"**, **"General Ledger & Close"**, & **"AI Controller & Forecaster"**. |
 | **2. Build Quality** *(Does it run, is it structured, would you trust it?)* | Built on production ACID multi-doc transactions, deterministic SHA-256 idempotency, **Factual Ground-Truth Claim Validation Gate**, and an independent **Cryptographic Merkle Hash Chain** ($H_i = \text{SHA256}(H_{i-1} + \dots)$). **1-Command Setup** via Docker or setup scripts. | `docker-compose up`<br/>*or* `./setup.sh` / `setup.bat`<br/>`npm test` & `npm run eval-genai:mock` |
 | **3. AI Judgment** *(Right tool in right place, & where we chose NOT to use one)* | **Restraint-First Architecture**: ~85–90% of transactions resolve deterministically in <5ms ($0 API cost). GenAI is invoked *only* on unstructured residuals. **Never trust model arithmetic or ungrounded memory**: strictly gated by `Gross - Deductions ≡ BankReceived` and grounded tax rule tables. | Read [AI Decision Log (`docs/AI_DECISIONS.md`)](docs/AI_DECISIONS.md) and run `npm run eval-genai:mock`. |
-| **4. Failure Recovery** *(What broke, and what you did about it)* | Tested against real adversarial failure modes: **Adversarial Prompt Injection in Bank Narration** (`ATTACK-01`), **Simulated Total Gemini API Outage** (graceful non-blocking degradation), double-settlement race conditions, and Merkle chain tampering. | Run fault demo & adversarial suite:<br/>`npm test`<br/>`npm run fault-demo` |
+| **4. Failure Recovery** *(What broke, and what you did about it)* | Tested against real adversarial failure modes: **Adversarial Prompt Injection in Bank Narration** (`WORST-21`), **Simulated Total Gemini API Outage** (graceful non-blocking degradation), **Reversible Hash-Chained Overrides**, and Merkle chain tampering. | Run fault demo & adversarial suite:<br/>`npm test`<br/>`npm run fault-demo` |
 
 ---
 
@@ -147,6 +150,68 @@ npm run dev
 cd frontend
 npm run dev
 ```
+
+## 3. Trust & Governance Layer (Glass-Box Control Architecture)
+
+Finance leaders require **provable provenance** and **graduated autonomy** rather than uniform auto-commits:
+
+```
+                  ┌─────────────────────────────────────────────────────────┐
+                  │                 TIER 1: EXACT MATCH                     │
+                  │        Mathematically Unambiguous (SHA-256)             │
+                  │           Direct Auto-Commit (Paid in GL)               │
+                  └─────────────────────────────────────────────────────────┘
+                                               │
+                                               ▼
+                  ┌─────────────────────────────────────────────────────────┐
+                  │              TIERS 2–4: INFERENCE / GENAI               │
+                  │             Requires Graduated Trust Proof              │
+                  └─────────────────────────────────────────────────────────┘
+                                               │
+               ┌───────────────────────────────┴───────────────────────────────┐
+               ▼                                                               ▼
+  [FIRST_TIME (0 Clean Confirmations)]                            [PROVISIONAL_AUTO (2 Confirmations)]
+  • Always lands in PROPOSED Queue                                • Auto-commits to GL with Review Flag
+  • Awaiting 1-click Accountant Sign-Off                          • Visible trust badge in feed
+               │                                                               │
+               ▼                                                               ▼
+  [CONFIRMED_ONCE (1 Confirmation)]                               [FULLY_TRUSTED (3+ Clean Confirmations)]
+  • Promotion recorded in RuleCache                               • Full autonomous commit
+  • Still requires sign-off                                       • Zero review flag needed
+               │                                                               │
+               └───────────────────► [ACCOUNTANT OVERRIDE] ◄───────────────────┘
+                                     • Reverts Paid status in GL
+                                     • Demotes trust level automatically
+                                     • Emits immutable ACCOUNTANT_OVERRIDE event
+```
+
+1. **Graduated Autonomy State Machine**:
+   - Tier 1 exact matches auto-commit immediately ($100\%$ deterministic).
+   - Tiers 2–4 default to `PROPOSED` review state until a counterparty pattern earns consecutive clean confirmations (`FIRST_TIME` $\to$ `CONFIRMED_ONCE` $\to$ `PROVISIONAL_AUTO` $\to$ `FULLY_TRUSTED`).
+   - A single accountant override immediately resets and downgrades the pattern's trust level.
+2. **Visible Accountability Statements in Primary View**:
+   - No clicks required: every row explicitly declares whether human or machine is accountable (e.g. *"Proposed by GenAI extraction — arithmetic independently verified — awaiting accountant sign-off"* vs *"Verified — exact match, no inference involved"*).
+3. **Reversible, Hash-Chained Overrides**:
+   - Every manual correction, rejection, or confirmation is permanently linked into the SHA-256 Merkle chain with recorded accountant notes and included in the Auditor CSV Export.
+4. **Accountant-Legible Confidence Language**:
+   - Replaced raw ML decimals with intuitive classifications: `Verified (Exact Match)`, `AI-Assisted — High Confidence`, `First-Time Pattern — Unconfirmed`, and `Low Confidence — Flagged for Manual Resolution`.
+
+---
+
+## 4. PII Handling & Data Privacy Architecture
+
+Bank narration text in enterprise environments can occasionally contain fragments of sensitive or personal information (PAN numbers, Aadhaar patterns, private bank account numbers, emails).
+
+### Design Intent & Production Masking:
+1. **Pre-API Boundary Redaction**:
+   - Implemented `maskPIIInNarration` in `backend/src/services/tier3GenAIPool.js`.
+   - Before narration strings cross the external GenAI boundary to Google Gemini, regex tokenizers redact:
+     - **Permanent Account Numbers (PAN)**: `[A-Z]{5}[0-9]{4}[A-Z]` $\to$ `[REDACTED_PAN]`
+     - **Aadhaar Numbers**: `\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b` $\to$ `[REDACTED_AADHAAR]`
+     - **Email Addresses**: `\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b` $\to$ `[REDACTED_EMAIL]`
+     - **Private Account Numbers**: 10–18 consecutive digits $\to$ `[REDACTED_ACCT]` (while strictly preserving standard Invoice identifiers like `INV-2024-1001`).
+2. **Synthetic Data Integrity**:
+   - The provided evaluation datasets and benchmark files (`sample-batch-50.json`, `sample-chaos-20-nightmare.json`) consist solely of synthetic, fictional B2B counterparty entities with zero real PII.
 
 ---
 
