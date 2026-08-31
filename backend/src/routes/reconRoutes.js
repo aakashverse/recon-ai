@@ -1,6 +1,6 @@
 import express from 'express';
 import { sseManager } from '../utils/sseManager.js';
-import { ReconciliationEngine } from '../services/reconciliationEngine.js';
+import { ReconciliationEngine, resetChainPointer } from '../services/reconciliationEngine.js';
 import { OutboxService } from '../services/outboxService.js';
 import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
@@ -13,6 +13,7 @@ import { parseCSV, normalizeBankStatementRows, normalizeInvoiceRows } from '../u
 import { runSettlementAgent } from '../services/settlementAgent.js';
 import { JournalService } from '../services/journalService.js';
 import { calculateEventHash, GENESIS_HASH } from '../utils/hasher.js';
+import { clearRAGCache } from '../services/tier3GenAIPool.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -893,6 +894,8 @@ reconRouter.get('/events/:bankTxnId', async (req, res) => {
  */
 reconRouter.post('/reset', async (req, res) => {
   try {
+    clearRAGCache();
+    await resetChainPointer();
     await Promise.all([
       BankLedger.deleteMany({}),
       ReconciliationEvent.deleteMany({}),
@@ -900,6 +903,7 @@ reconRouter.post('/reset', async (req, res) => {
       Invoice.deleteMany({ invoiceNumber: { $regex: /^BANK-/i } }),
       Invoice.updateMany({}, { $set: { status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null, reconMethod: null } }),
     ]);
+    await Invoice.updateOne({ invoiceNumber: 'INV-2024-5004' }, { $set: { status: 'PAID', paidAmount: 100000 } });
 
     sseManager.broadcast('dashboard:reset', { timestamp: new Date().toISOString() });
 

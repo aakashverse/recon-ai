@@ -81,11 +81,25 @@ export function computeNarrationFingerprint(narration) {
 }
 
 /**
- * Checks RAG cache for recurring narration patterns
+ * Checks RAG cache for recurring narration patterns with dynamic invoice token binding
  */
 function checkRAGCache(narration) {
   const currentFp = computeNarrationFingerprint(narration);
   if (!currentFp || currentFp.length < 8) return null;
+
+  // Extract the invoice token from the CURRENT incoming narration
+  const normalizedOcr = (narration || '').toUpperCase()
+    .replace(/\b1NV\b/g, 'INV')
+    .replace(/2O2/g, '202')
+    .replace(/3OO/g, '300')
+    .replace(/4OO/g, '400')
+    .replace(/5OO/g, '500')
+    .replace(/IOO/g, '100')
+    .replace(/([0-9])O([0-9])/g, '$10$2')
+    .replace(/([0-9])OO([0-9])/g, '$100$2');
+
+  const invMatch = normalizedOcr.match(/\b(?:INV|INVOICE)[-_/ ]*([0-9]{4}[-_/]?[0-9]+)\b/i);
+  const currentInvoiceId = invMatch ? `INV-${invMatch[1].replace(/[/_ ]/g, '-')}` : null;
 
   for (const [, entry] of ragResolutionCache.entries()) {
     const maxLen = Math.max(currentFp.length, entry.fingerprint.length);
@@ -94,10 +108,13 @@ function checkRAGCache(narration) {
     const distance = levenshtein.get(currentFp, entry.fingerprint);
     const similarity = 1 - distance / maxLen;
 
-    // Strict 92% structural similarity threshold for RAG reuse
-    if (similarity >= 0.92) {
+    // Strict 95% structural similarity threshold for RAG reuse
+    if (similarity >= 0.95) {
+      // Dynamic Invoice Binding: If current narration has its own invoice number, bind to it!
+      const resolvedInvoiceId = currentInvoiceId || entry.resolution.matched_invoice_id;
       return {
         ...entry.resolution,
+        matched_invoice_id: resolvedInvoiceId,
         ragCacheHit: true,
         similarityScore: similarity,
       };
@@ -105,6 +122,13 @@ function checkRAGCache(narration) {
   }
 
   return null;
+}
+
+/**
+ * Clears the in-memory RAG template cache
+ */
+export function clearRAGCache() {
+  ragResolutionCache.clear();
 }
 
 /**
