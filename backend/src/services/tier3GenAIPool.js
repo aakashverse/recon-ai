@@ -139,7 +139,12 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
     .replace(/\b1NV(?=[-_0-9])/g, 'INV')
     .replace(/(?<=[-_/])1NV/g, 'INV')
     .replace(/2O2/g, '202')
+    .replace(/3OO/g, '300')
+    .replace(/4OO/g, '400')
+    .replace(/5OO/g, '500')
     .replace(/IOO/g, '100')
+    .replace(/([0-9])O([0-9])/g, '$10$2')
+    .replace(/([0-9])OO([0-9])/g, '$100$2')
     .replace(/IO-PERCENT/g, '10%')
     .replace(/1O-PERCENT/g, '10%')
     .replace(/2-PERCENT/g, '2%')
@@ -174,6 +179,8 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
     { token: 'PAYTM', name: 'Paytm' },
     { token: 'ZENITH', name: 'Zenith' },
     { token: 'HEXAWAVE', name: 'HexaWave Consulting' },
+    { token: 'DELTA', name: 'Delta Marketing Hub' },
+    { token: 'OMNISECURE', name: 'OmniSecure Cyber Labs' },
     { token: 'AMZN', name: 'Amazon Marketplace' },
     { token: 'AMAZON', name: 'Amazon Marketplace' },
     { token: 'TATA', name: 'Tata Consultancy Services' },
@@ -240,6 +247,24 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
     rule_id = 'FEE-WIRE-PG';
     const wireMatch = normalizedOcr.match(/(?:WIRE[-_ ]?FEE|CHG|CHARGES|PG[-_ ]?FEE)[-_ :]*(\d+)/i);
     deduction_amount = wireMatch ? Number(wireMatch[1]) : 100;
+  } else if (matched_invoice_id) {
+    // If invoice matched without explicit narration tax token, test standard TDS deltas
+    const expectedGross2Pct = Number((bankAmount / 0.98).toFixed(0));
+    const expectedGross10Pct = Number((bankAmount / 0.90).toFixed(0));
+    if (context.allInvoices) {
+      const inv = context.allInvoices.find((i) => i.invoiceNumber === matched_invoice_id);
+      if (inv) {
+        if (Math.abs(inv.totalAmount - expectedGross2Pct) <= 1) {
+          deduction_type = 'TDS_194C';
+          rule_id = 'TDS-194C';
+          deduction_amount = Number((inv.totalAmount - bankAmount).toFixed(2));
+        } else if (Math.abs(inv.totalAmount - expectedGross10Pct) <= 1) {
+          deduction_type = 'TDS_194J';
+          rule_id = 'TDS-194J';
+          deduction_amount = Number((inv.totalAmount - bankAmount).toFixed(2));
+        }
+      }
+    }
   }
 
   const reasoning = `Deterministic extraction grounded in rule table (${rule_id || 'NO_RULE'}). Extracted invoice: ${matched_invoice_id || 'None'}, vendor: ${vendor_name || 'None'}, deduction: ₹${deduction_amount} (${deduction_type}).`;
