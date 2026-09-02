@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import SAMPLE_BATCH_50 from '../data/sample-batch-50.json';
 import SAMPLE_BENCHMARK_20 from '../data/sample-benchmark-20.json';
+import SAMPLE_KAGGLE_100 from '../data/sample-kaggle-100.json';
 
 export function DataImporterModal({ onClose, onFeedImported, onInvoicesImported }) {
   const [activeTab, setActiveTab] = useState('BANK_FEED'); // 'BANK_FEED' | 'INVOICES'
@@ -112,6 +113,30 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
     } else {
       setCsvContent(sampleInvoiceCSV);
       setFeedback({ type: 'info', message: 'Loaded enterprise sample invoices into workspace.' });
+    }
+  };
+
+  const handleLoadKaggleBenchmark = () => {
+    if (activeTab === 'BANK_FEED') {
+      const csv =
+        'Date,Narration,Credit,UTR\n' +
+        SAMPLE_KAGGLE_100.bankTransactions.map((t) => `${t.date},"${t.narration}",${t.amount},${t.utr}`).join('\n');
+      setCsvContent(csv);
+      setFeedback({
+        type: 'info',
+        message: `Loaded ${SAMPLE_KAGGLE_100.bankTransactions.length} Kaggle financial transactions (ziya07 dataset).`,
+      });
+    } else {
+      const csv =
+        'Invoice Number,Customer Name,Total Amount,Base Amount,Tax Amount,TDS Section,TDS Rate\n' +
+        SAMPLE_KAGGLE_100.invoices.map((inv) =>
+          `${inv.invoiceNumber},"${inv.customerName}",${inv.totalAmount},${inv.baseAmount},${inv.taxAmount},${inv.tdsSection},${inv.tdsRate}`
+        ).join('\n');
+      setCsvContent(csv);
+      setFeedback({
+        type: 'info',
+        message: `Loaded ${SAMPLE_KAGGLE_100.invoices.length} ERP invoices mapped from Kaggle financial accounting dataset.`,
+      });
     }
   };
 
@@ -312,6 +337,15 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
                 <Layers className="w-3 h-3" />
                 <span>50-Txn Batch</span>
               </button> */}
+              <button
+                type="button"
+                onClick={handleLoadKaggleBenchmark}
+                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/40 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                title="Load Kaggle Accounting Data for Financial Management Benchmark (100 Rows)"
+              >
+                <Sparkles className="w-3 h-3 text-cyan-400" />
+                <span>Kaggle Benchmark (100)</span>
+              </button>
               <a
                 href={activeTab === 'BANK_FEED' ? '/api/reconciliation/template-bank-feed' : '/api/reconciliation/template-invoices'}
                 download

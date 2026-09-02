@@ -14,6 +14,7 @@
     "fault-demo": "node scripts/fault-injection-demo.js",
     "eval-genai": "node scripts/eval-genai.js",
     "eval-genai:mock": "node scripts/eval-genai.js --mock-llm",
+    "benchmark:kaggle": "node scripts/run-kaggle-benchmark.js --mock-llm",
     "test": "node --test test/adversarial.test.js test/tiers.test.js test/trust-governance.test.js test/error-handling.test.js test/vector-rag.test.js"
   },
   "dependencies": {
