@@ -189,7 +189,13 @@ export function normalizeBankStatementRows(rawRows) {
       'net_payment',
       'netpaymentamount',
       'transaction amount',
+      'transaction_amount',
+      'transactionamount',
       'txn amount',
+      'cash flow',
+      'cash_flow',
+      'revenue',
+      'expenditure',
       'amount',
     ]);
 
@@ -201,21 +207,30 @@ export function normalizeBankStatementRows(rawRows) {
       }
     }
 
-    const amount = extractNumber(rawAmount, 0);
+    const amount = Math.abs(extractNumber(rawAmount, 0));
 
-    // 2. Vendor / Customer & Invoice references
-    const vendor = findValueByKeys(r, ['vendor', 'vendor name', 'customer', 'customer name', 'party', 'client', 'supplier']);
+    // 2. Vendor / Customer, Account Type & Invoice references
+    let vendor = findValueByKeys(r, ['vendor', 'vendor name', 'customer', 'customer name', 'party', 'client', 'supplier']);
+    const acctType = findValueByKeys(r, ['account type', 'account_type', 'accounttype', 'type', 'category']);
     const invoiceId = findValueByKeys(r, ['invoice id', 'invoice number', 'inv no', 'bill no', 'invoice', 'invoice_id']);
     const targetInvs = Array.isArray(r.targetInvoices) ? r.targetInvoices.join('-AND-') : null;
-    const bankTxnKey = findValueByKeys(r, ['bank txn id', 'bank_txn_id', 'bank id', 'bank_id', 'bank ref', 'bank_ref', 'transaction id', 'banktxnid']);
+    const bankTxnKey = findValueByKeys(r, ['bank txn id', 'bank_txn_id', 'bank id', 'bank_id', 'bank ref', 'bank_ref', 'transaction id', 'transaction_id', 'banktxnid', 'txnid', 'txn id']);
+
+    if (!vendor && acctType) {
+      vendor = `${acctType.trim()} Counterparty`;
+    }
 
     // 3. Narration / Description
     let narration = findValueByKeys(r, ['narration', 'description', 'particulars', 'remarks', 'transaction remarks', 'details']);
     if (!narration) {
       if (targetInvs) {
         narration = `NEFT/CMS/${targetInvs}${r.expectedTdsSection ? '/TDS-' + r.expectedTdsSection : ''}${r.expectedTdsRate ? '-' + r.expectedTdsRate + 'PCT' : ''}`;
-      } else if (vendor || invoiceId) {
-        narration = `${vendor || 'Vendor'}${invoiceId ? ' - ' + invoiceId : ''}${bankTxnKey ? ' - Ref: ' + bankTxnKey : ''}`;
+      } else if (invoiceId || bankTxnKey) {
+        const invToken = invoiceId || (bankTxnKey ? (String(bankTxnKey).startsWith('INV-') ? bankTxnKey : `INV-${bankTxnKey}`) : null);
+        const prefix = acctType ? (String(acctType).toUpperCase() === 'EXPENSE' ? 'RTGS/VENDOR-PAYOUT' : 'NEFT/CLIENT-RECEIPT') : 'NEFT/CMS';
+        narration = `${prefix}/${vendor ? vendor.toUpperCase().replace(/[^A-Z0-9]+/g, '-') : 'FINANCIAL-ENTRY'}/${invToken || 'TXN-' + (idx + 1)}/SETTLEMENT`;
+      } else if (vendor) {
+        narration = `${vendor} - Settlement #${idx + 1}`;
       } else {
         narration = `Bank Credit #${idx + 1}`;
       }
@@ -254,8 +269,8 @@ export function normalizeInvoiceRows(rawRows) {
   if (!Array.isArray(rawRows)) return [];
 
   return rawRows.map((r, idx) => {
-    // 1. Invoice Number (Strictly invoice tokens, never generic 'id' which clashes with row serials)
-    const invoiceNumber = findValueByKeys(r, [
+    // 1. Invoice Number (Supports standard invoices and financial management transaction IDs)
+    const rawInv = findValueByKeys(r, [
       'invoice id',
       'invoice_id',
       'invoiceid',
@@ -267,10 +282,24 @@ export function normalizeInvoiceRows(rawRows) {
       'invoice #',
       'invoice',
       'inv_id',
-    ]) || `INV-IMPORT-${idx + 1}`;
+      'transaction id',
+      'transaction_id',
+      'transactionid',
+      'txn id',
+      'txn_id',
+      'txnid',
+    ]);
+
+    let invoiceNumber;
+    if (rawInv) {
+      const str = String(rawInv).trim();
+      invoiceNumber = str.startsWith('INV-') ? str : `INV-${str}`;
+    } else {
+      invoiceNumber = `INV-IMPORT-${idx + 1}`;
+    }
 
     // 2. Customer Name / Vendor
-    const customerName = findValueByKeys(r, [
+    let customerName = findValueByKeys(r, [
       'vendor',
       'vendor name',
       'vendor_name',
@@ -281,12 +310,21 @@ export function normalizeInvoiceRows(rawRows) {
       'party',
       'client',
       'supplier',
-    ]) || 'Corporate Client';
+    ]);
+
+    const acctType = findValueByKeys(r, ['account type', 'account_type', 'accounttype', 'type', 'category']);
+    if (!customerName) {
+      if (acctType) {
+        customerName = `${acctType.trim()} Counterparty (${invoiceNumber})`;
+      } else {
+        customerName = 'Corporate Client';
+      }
+    }
 
     // 3. GSTIN
     const customerGstin = findValueByKeys(r, ['gstin', 'customer gstin', 'gst no', 'tax id']) || null;
 
-    // 4. Amounts (Strictly invoice amount / gross amount, NEVER bank amount)
+    // 4. Amounts (Supports standard invoice amounts and financial management transaction values)
     const rawTotal = findValueByKeys(r, [
       'invoice amount (inr)',
       'invoice amount inr',
@@ -304,9 +342,15 @@ export function normalizeInvoiceRows(rawRows) {
       'gross_amount',
       'invoice value',
       'bill amount',
+      'transaction amount',
+      'transaction_amount',
+      'transactionamount',
+      'revenue',
+      'expenditure',
+      'cash flow',
       'amount',
     ]);
-    const totalAmount = extractNumber(rawTotal, 0);
+    const totalAmount = Math.abs(extractNumber(rawTotal, 0));
 
     const rawBase = findValueByKeys(r, ['base amount', 'base_amount', 'baseamount', 'taxable value', 'subtotal']);
     let baseAmount = rawBase !== undefined ? extractNumber(rawBase, 0) : Number((totalAmount / 1.18).toFixed(2));
@@ -315,12 +359,19 @@ export function normalizeInvoiceRows(rawRows) {
     let taxAmount = rawTax !== undefined ? extractNumber(rawTax, 0) : Number((totalAmount - baseAmount).toFixed(2));
 
     // 5. TDS section & rate
-    const rawTdsSection = findValueByKeys(r, ['tds section', 'tds_section', 'tdssection', 'section', 'expected tds section']) || 'NONE';
-    const validSections = ['194C', '194J', '194H', '194Q', '194I', '194A', '206AB', 'NONE'];
-    const expectedTdsSection = validSections.includes(String(rawTdsSection).toUpperCase()) ? String(rawTdsSection).toUpperCase() : 'NONE';
+    const rawTdsSection = findValueByKeys(r, ['tds section', 'tds_section', 'tdssection', 'section', 'expected tds section']);
+    let expectedTdsSection = 'NONE';
+    let expectedTdsRate = 0;
 
-    const rawTdsRate = findValueByKeys(r, ['tds rate', 'tds_rate', 'tdsrate', 'tds %', 'rate', 'expected tds rate']);
-    const expectedTdsRate = extractNumber(rawTdsRate, 0);
+    if (rawTdsSection) {
+      const validSections = ['194C', '194J', '194H', '194Q', '194I', '194A', '206AB', 'NONE'];
+      expectedTdsSection = validSections.includes(String(rawTdsSection).toUpperCase()) ? String(rawTdsSection).toUpperCase() : 'NONE';
+      const rawTdsRate = findValueByKeys(r, ['tds rate', 'tds_rate', 'tdsrate', 'tds %', 'rate', 'expected tds rate']);
+      expectedTdsRate = extractNumber(rawTdsRate, 0);
+    } else if (acctType && String(acctType).toLowerCase().includes('expense')) {
+      expectedTdsSection = '194C';
+      expectedTdsRate = 2.0;
+    }
 
     const expectedTdsAmount = Number(((baseAmount * expectedTdsRate) / 100).toFixed(2));
 

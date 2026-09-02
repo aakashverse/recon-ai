@@ -200,6 +200,22 @@ If Target is INVOICES, output JSON conforming strictly to:
   ]
 }
 
+SPECIAL INSTRUCTION FOR ACCOUNTING / GENERAL LEDGER / KAGGLE DATASETS (containing fields: Transaction ID, Date, Account Type, Transaction Amount, Cash Flow, Revenue, Expenditure):
+- If Target is BANK_TRANSACTIONS:
+  - bankTxnId: Use Transaction ID e.g. "TXN_0001"
+  - utrNumber: Use Transaction ID or format as UTR
+  - amount: Use positive Transaction Amount
+  - narration: Format as "NEFT/CMS/[ACCOUNT_TYPE]/INV-[TRANSACTION_ID]/SETTLEMENT"
+  - txnDate: Use Date
+- If Target is INVOICES:
+  - invoiceNumber: Format as "INV-[TRANSACTION_ID]" e.g. "INV-TXN_0001"
+  - customerName: "[Account Type] Counterparty (INV-[TRANSACTION_ID])"
+  - totalAmount: Use Transaction Amount or Revenue/Expenditure
+  - baseAmount: totalAmount / 1.18
+  - taxAmount: totalAmount - baseAmount
+  - expectedTdsSection: If Expense, use "194C"; if Revenue, use "NONE"
+  - expectedTdsRate: 2.0 or 0.0
+
 RAW INPUT TEXT TO CONVERT:
 """
 ${rawText}
