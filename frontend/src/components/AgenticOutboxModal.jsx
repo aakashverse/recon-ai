@@ -343,6 +343,16 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                   </div>
                   <div className="flex items-center flex-wrap gap-2">
                     <button
+                      type="button"
+                      onClick={generateAIDraft}
+                      disabled={isGeneratingAI}
+                      className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-900 text-purple-300 border border-purple-700/50 text-[11px] font-medium flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shadow-sm"
+                      title="Regenerate formal WhatsApp draft using Google Gemini 1.5 Flash"
+                    >
+                      <Sparkles className={`w-3 h-3 text-purple-400 ${isGeneratingAI ? 'animate-spin' : ''}`} />
+                      <span>{isGeneratingAI ? 'Gemini Drafting...' : 'Regenerate with Gemini'}</span>
+                    </button>
+                    <button
                       onClick={() => handleCopy(whatsappDraftText)}
                       className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                     >
@@ -358,20 +368,12 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                       <ExternalLink className="w-3 h-3" />
                       <span>Open in WhatsApp Web</span>
                     </a>
-                    {/* <button
-                      onClick={() => handleServerDispatch('WHATSAPP')}
-                      disabled={isSubmitting}
-                      className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/40 font-semibold text-[11px] flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
-                    >
-                      {/* <Send className="w-3 h-3" /> */}
-                      {/* <span>Dispatch via API Relay</span> */}
-                    {/* </button> */}
                   </div>
                 </div>
                 <textarea
                   value={whatsappDraftText}
                   onChange={(e) => setWhatsappDraftText(e.target.value)}
-                  rows={6}
+                  rows={7}
                   className="w-full p-3 rounded-lg bg-emerald-950/20 border border-emerald-800/40 text-emerald-200 font-sans text-xs whitespace-pre-line leading-relaxed focus:outline-none focus:border-emerald-500 transition-colors"
                 />
               </div>
@@ -393,6 +395,16 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                   </div>
                   <div className="flex items-center flex-wrap gap-2">
                     <button
+                      type="button"
+                      onClick={generateAIDraft}
+                      disabled={isGeneratingAI}
+                      className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-900 text-purple-300 border border-purple-700/50 text-[11px] font-medium flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shadow-sm"
+                      title="Regenerate formal corporate Email draft using Google Gemini 1.5 Flash"
+                    >
+                      <Sparkles className={`w-3 h-3 text-purple-400 ${isGeneratingAI ? 'animate-spin' : ''}`} />
+                      <span>{isGeneratingAI ? 'Gemini Drafting...' : 'Regenerate with Gemini'}</span>
+                    </button>
+                    <button
                       onClick={() => handleCopy(`Subject: ${emailSubject}\n\n${emailBodyText}`)}
                       className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                     >
@@ -409,14 +421,6 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                       <ExternalLink className="w-3 h-3" />
                       <span>Open in Gmail Web</span>
                     </a>
-                    {/* <button 
-                      onClick={() => handleServerDispatch('EMAIL')}
-                      disabled={isSubmitting}
-                      className="px-3 py-1 rounded bg-razor-blue hover:bg-razor-blueHover text-white font-semibold text-[11px] flex items-center gap-1.5 transition-all shadow-sm disabled:opacity-50 cursor-pointer"
-                    >
-                      {/* <Send className="w-3 h-3" /> */}
-                      {/* <span>Dispatch via SMTP Relay</span> */}
-                    {/* </button> */}
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -429,7 +433,7 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                   <textarea
                     value={emailBodyText}
                     onChange={(e) => setEmailBodyText(e.target.value)}
-                    rows={6}
+                    rows={8}
                     className="w-full p-3 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 text-xs font-sans whitespace-pre-line leading-relaxed focus:outline-none focus:border-razor-blue"
                   />
                 </div>
