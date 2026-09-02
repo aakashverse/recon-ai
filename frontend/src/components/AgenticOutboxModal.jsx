@@ -242,15 +242,16 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
           </div>
 
           <div className="flex items-center gap-2">
-            <button
-              onClick={generateAIDraft}
-              disabled={isGeneratingAI}
-              className="px-3 py-1.5 rounded-lg bg-razor-purple/20 hover:bg-razor-purple/30 text-purple-300 border border-razor-purple/40 text-xs font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
-              title="Query Gemini 1.5 Flash to dynamically draft contextual reasoning and notifications"
-            >
-              <Sparkles className={`w-3.5 h-3.5 text-purple-400 ${isGeneratingAI ? 'animate-spin' : ''}`} />
-              <span>{isGeneratingAI ? 'Gemini Thinking...' : 'Regenerate with Gemini AI'}</span>
-            </button>
+           <button
+                type="button"
+                onClick={generateAIDraft}
+                disabled={isGeneratingAI}
+                className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-900 text-purple-300 border border-purple-700/50 text-[13px] font-medium flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shadow-sm"
+                title="Query Gemini to dynamically draft contextual reasoning and messages"
+              >
+                <Sparkles className={`w-3 h-3 text-purple-400 ${isGeneratingAI ? 'animate-spin' : ''}`} />
+                <span>{isGeneratingAI ? 'Gemini Drafting...' : 'Regenerate with Gemini'}</span>
+              </button>
 
             <button
               onClick={onClose}
@@ -343,22 +344,13 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                   </div>
                   <div className="flex items-center flex-wrap gap-2">
                     <button
-                      type="button"
-                      onClick={generateAIDraft}
-                      disabled={isGeneratingAI}
-                      className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-900 text-purple-300 border border-purple-700/50 text-[11px] font-medium flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shadow-sm"
-                      title="Regenerate formal WhatsApp draft using Google Gemini 1.5 Flash"
-                    >
-                      <Sparkles className={`w-3 h-3 text-purple-400 ${isGeneratingAI ? 'animate-spin' : ''}`} />
-                      <span>{isGeneratingAI ? 'Gemini Drafting...' : 'Regenerate with Gemini'}</span>
-                    </button>
-                    <button
                       onClick={() => handleCopy(whatsappDraftText)}
                       className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Copy className="w-3 h-3" />
                       <span>{copied ? 'Copied!' : 'Copy'}</span>
                     </button>
+                    
                     <a
                       href={whatsappWebUrl}
                       target="_blank"
@@ -394,23 +386,14 @@ export function AgenticOutboxModal({ transaction, onClose, onResolved }) {
                     />
                   </div>
                   <div className="flex items-center flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={generateAIDraft}
-                      disabled={isGeneratingAI}
-                      className="px-2.5 py-1 rounded bg-purple-950/60 hover:bg-purple-900 text-purple-300 border border-purple-700/50 text-[11px] font-medium flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer shadow-sm"
-                      title="Regenerate formal corporate Email draft using Google Gemini 1.5 Flash"
-                    >
-                      <Sparkles className={`w-3 h-3 text-purple-400 ${isGeneratingAI ? 'animate-spin' : ''}`} />
-                      <span>{isGeneratingAI ? 'Gemini Drafting...' : 'Regenerate with Gemini'}</span>
-                    </button>
-                    <button
+                     <button
                       onClick={() => handleCopy(`Subject: ${emailSubject}\n\n${emailBodyText}`)}
                       className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center gap-1 transition-colors cursor-pointer"
                     >
                       <Copy className="w-3 h-3" />
                       <span>{copied ? 'Copied!' : 'Copy'}</span>
                     </button>
+                   
                     <a
                       href={gmailComposeUrl}
                       target="_blank"

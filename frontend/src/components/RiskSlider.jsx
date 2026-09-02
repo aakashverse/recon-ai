@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sliders, Search, Filter, X, ShieldCheck, Sparkles, AlertCircle, Layers, CheckCircle2 } from 'lucide-react';
+import { Sliders, Search, Filter, X, ShieldCheck, Sparkles, AlertCircle, Layers, CheckCircle2, Database } from 'lucide-react';
 
 export function RiskSlider({
   minConfidence = 0,
@@ -19,7 +19,7 @@ export function RiskSlider({
     {
       key: 'ALL',
       label: 'All Records',
-      icon: Layers,
+      icon: Database,
       count: counts.all ?? totalCount,
       activeClass: 'bg-razor-blue/20 text-razor-blue border-razor-blue/50 shadow-sm shadow-razor-blue/10',
       badgeClass: 'bg-razor-blue/30 text-blue-300',
