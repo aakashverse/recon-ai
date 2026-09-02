@@ -25,6 +25,21 @@ export async function connectDB() {
     isConnected = true;
     console.log(`[Database] Connected to MongoDB at ${conn.connection.host}:${conn.connection.port}/${conn.connection.name}`);
 
+    // Register resilient connection lifecycle event listeners
+    mongoose.connection.on('error', (err) => {
+      console.error('[Database Runtime Error]:', err.message);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      isConnected = false;
+      console.warn('[Database Warning]: Disconnected from MongoDB. Awaiting auto-reconnection...');
+    });
+
+    mongoose.connection.on('reconnected', () => {
+      isConnected = true;
+      console.log('[Database Info]: Reconnected to MongoDB successfully.');
+    });
+
     // Check if replica set
     try {
       const adminDb = conn.connection.db.admin();

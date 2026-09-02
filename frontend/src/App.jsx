@@ -12,7 +12,7 @@ import { AISettingsModal } from './components/AISettingsModal.jsx';
 import { DataImporterModal } from './components/DataImporterModal.jsx';
 import { FinanceControllerModal } from './components/FinanceControllerModal.jsx';
 import { GeneralLedgerModal } from './components/GeneralLedgerModal.jsx';
-import SAMPLE_BATCH_50 from './sample-batch-50.json';
+import SAMPLE_BATCH_50 from './data/sample-batch-50.json';
 
 
 export default function App() {

@@ -12,8 +12,8 @@ import {
   Sparkles,
   Bot,
 } from 'lucide-react';
-import SAMPLE_BATCH_50 from '../sample-batch-50.json';
-import SAMPLE_BENCHMARK_20 from '../sample-benchmark-20.json';
+import SAMPLE_BATCH_50 from '../data/sample-batch-50.json';
+import SAMPLE_BENCHMARK_20 from '../data/sample-benchmark-20.json';
 
 export function DataImporterModal({ onClose, onFeedImported, onInvoicesImported }) {
   const [activeTab, setActiveTab] = useState('BANK_FEED'); // 'BANK_FEED' | 'INVOICES'

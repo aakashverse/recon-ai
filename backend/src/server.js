@@ -6,7 +6,18 @@ import { connectDB } from './config/db.js';
 import { reconRouter } from './routes/reconRoutes.js';
 import { ruleRouter } from './routes/ruleRoutes.js';
 
+import { errorHandler, notFoundHandler } from './middleware/index.js';
+
 dotenv.config();
+
+// Process-level unhandled exception and rejection traps to prevent silent crashes
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL: Uncaught Exception]:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL: Unhandled Promise Rejection]:', reason);
+});
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -28,17 +39,15 @@ app.get('/api/health', (req, res) => {
     service: 'Razorpay B2B Recon AI Engine',
     timestamp: new Date().toISOString(),
     uptimeSeconds: Math.floor(process.uptime()),
+    memoryUsageMb: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
   });
 });
 
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('[Unhandled Server Error]:', err);
-  res.status(500).json({
-    error: 'Internal Server Error',
-    message: err.message,
-  });
-});
+// 404 handler for undefined routes
+app.use(notFoundHandler);
+
+// Centralized JSON error handling middleware
+app.use(errorHandler);
 
 async function startServer() {
   try {
@@ -51,9 +60,16 @@ async function startServer() {
       console.log(`===============================================================\n`);
     });
 
-    const shutdown = () => {
+    const shutdown = async () => {
       console.log('Shutting down gracefully...');
-      server.close(() => {
+      server.close(async () => {
+        try {
+          const mongoose = await import('mongoose');
+          await mongoose.default.connection.close(false);
+          console.log('MongoDB connection closed cleanly.');
+        } catch (e) {
+          console.warn('Error closing MongoDB connection:', e.message);
+        }
         process.exit(0);
       });
     };
