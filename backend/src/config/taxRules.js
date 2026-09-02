@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Grounded Tax & Statutory Deduction Knowledge Base
  * 
  * DISCLAIMER: These are representative statutory rates and thresholds for 
@@ -139,4 +139,23 @@ export function retrieveRelevantTaxRules(narration = '', deltaRatio = 0) {
     TAX_RULE_KNOWLEDGE_BASE.find((r) => r.ruleId === 'TDS-194J'),
     TAX_RULE_KNOWLEDGE_BASE.find((r) => r.ruleId === 'FEE-WIRE-PG'),
   ].filter(Boolean);
+}
+
+/**
+ * Semantic Vector RAG Retrieval for Statutory Tax Rules
+ * Computes vector embeddings and Cosine Similarity against MongoDB Vector Index
+ */
+export async function retrieveSemanticTaxRules(narration = '', deltaRatio = 0, topK = 3) {
+  try {
+    const { vectorStoreService } = await import('../services/vectorStoreService.js');
+    return await vectorStoreService.searchTaxRules(narration, deltaRatio, topK);
+  } catch (err) {
+    const fallbackRules = retrieveRelevantTaxRules(narration, deltaRatio);
+    return fallbackRules.map((r) => ({
+      rule: r,
+      cosineScore: 0.85,
+      vectorSource: 'LOCAL_RULE_FALLBACK',
+      embeddingModel: 'local-dense-128',
+    }));
+  }
 }

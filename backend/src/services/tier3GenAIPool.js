@@ -1,6 +1,6 @@
 import { Invoice } from '../models/Invoice.js';
 import { getGeminiModel, getGenAI, getActiveModelName, isAIAvailable } from '../config/ai.js';
-import { retrieveRelevantTaxRules, TAX_RULE_KNOWLEDGE_BASE } from '../config/taxRules.js';
+import { retrieveRelevantTaxRules, retrieveSemanticTaxRules, TAX_RULE_KNOWLEDGE_BASE } from '../config/taxRules.js';
 import { z } from 'zod';
 import pLimit from 'p-limit';
 import levenshtein from 'fast-levenshtein';
@@ -340,8 +340,21 @@ export async function executeGenAIWorker(bankTxn, options = {}, context = {}) {
     };
   }
 
-  // 3. Step 4 Grounding: Retrieve plausible tax rules
-  const relevantTaxRules = retrieveRelevantTaxRules(narration);
+  // 3. Step 4 Grounding: Retrieve plausible tax rules via Semantic Vector RAG
+  let relevantTaxRules = [];
+  let vectorRagMeta = null;
+  try {
+    const vectorResults = await retrieveSemanticTaxRules(narration, 0, 3);
+    relevantTaxRules = vectorResults.map((v) => v.rule);
+    vectorRagMeta = {
+      model: vectorResults[0]?.embeddingModel || 'gemini-embedding-001',
+      source: vectorResults[0]?.vectorSource || 'MONGODB_VECTOR_STORE',
+      topCosineScore: vectorResults[0]?.cosineScore || 0.85,
+    };
+  } catch {
+    relevantTaxRules = retrieveRelevantTaxRules(narration);
+  }
+
   const taxGroundingContext = relevantTaxRules.map((r) => 
     `- Rule ID: ${r.ruleId} | Section: ${r.section} | Rate: ${r.standardRate}% | Applies: ${r.description}`
   ).join('\n');

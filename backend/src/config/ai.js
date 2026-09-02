@@ -7,9 +7,11 @@ let currentApiKey = process.env.GEMINI_API_KEY || '';
 let genAI = null;
 let geminiModel = null;
 let textGenModel = null;
+let embeddingModel = null;
 
 const candidateModels = ['gemini-flash-lite-latest', 'gemini-1.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
 let activeModelName = 'gemini-flash-lite-latest';
+const activeEmbeddingModelName = 'gemini-embedding-001';
 
 export function initGemini(apiKey = currentApiKey) {
   if (apiKey && apiKey !== 'your_gemini_api_key_here' && apiKey.trim().length > 10) {
@@ -36,7 +38,12 @@ export function initGemini(apiKey = currentApiKey) {
         },
       });
 
-      console.log(`[AI Engine] Google Gemini (${activeModelName}) initialized successfully.`);
+      // Dense Embedding Model for True Semantic Vector RAG (3072 dimensions)
+      embeddingModel = genAI.getGenerativeModel({
+        model: activeEmbeddingModelName,
+      });
+
+      console.log(`[AI Engine] Google Gemini (${activeModelName}) & Embeddings (${activeEmbeddingModelName}) initialized successfully.`);
       return true;
     } catch (err) {
       console.warn('[AI Engine] Failed to initialize Gemini API:', err.message);
@@ -57,6 +64,10 @@ export function getGeminiModel() {
 
 export function getTextGenModel() {
   return textGenModel;
+}
+
+export function getEmbeddingModel() {
+  return embeddingModel;
 }
 
 export function isAIAvailable() {
