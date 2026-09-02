@@ -1,35 +1,41 @@
-import { Invoice } from '../models/Invoice.js';
+﻿import { Invoice } from '../models/Invoice.js';
 
 /**
  * Tier 1: Deterministic Exact Matcher (<2ms)
  * - Strictly matches 100% exact gross amount (0 deductions) or pre-mapped exact UTR
- * - If there are any deductions (TDS, fees, discounts) or variances, Tier 1 yields to Tier 2/3!
+ * - Supports in-memory context indexing for sub-millisecond execution with zero DB round-trips
  */
-export async function matchTier1(bankTxn) {
+export async function matchTier1(bankTxn, context = {}) {
   const startTime = performance.now();
   const rawNarration = (bankTxn.narration || '').trim();
   const bankAmount = Number(bankTxn.amount);
 
-  // 1. Check flexible invoice number pattern in narration (e.g., INV-1001, INV-2024-101, INV/2026/01)
-  const invoiceMatch = rawNarration.match(/\b(INV[/-]?[A-Z0-9-]+|[A-Z0-9]+-INV[/-]?[A-Z0-9-]+)\b/i);
+  // 1. Check invoice number pattern in narration (e.g., INV-2024-1001, INV-1001, INV/2026/01)
+  const invoiceMatch = rawNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || rawNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
   let candidateInvoice = null;
 
   if (invoiceMatch) {
     const invNumber = invoiceMatch[1].toUpperCase();
-    candidateInvoice = await Invoice.findOne({
-      invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
-      status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-    }).lean();
+    if (context.invoiceByNumber) {
+      candidateInvoice = context.invoiceByNumber.get(invNumber) || null;
+      if (candidateInvoice && candidateInvoice.status === 'PAID') candidateInvoice = null;
+    } else {
+      candidateInvoice = await Invoice.findOne({
+        invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
+        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+      }).lean();
+    }
   }
 
-  // 2. Fallback: Lookup by Exact Vendor Name match in narration + Exact Gross Amount
+  // 2. Lookup by Vendor Name match in narration + Exact Gross Amount
   if (!candidateInvoice && rawNarration) {
-    const allUnpaid = await Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean();
+    const allUnpaid = context.allInvoices || (await Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean());
+    const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     for (const inv of allUnpaid) {
+      if (inv.status === 'PAID') continue;
       const cleanVendor = (inv.customerName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const cleanNarration = rawNarration.toLowerCase().replace(/[^a-z0-9]/g, '');
-      
-      if (cleanVendor && (cleanNarration.includes(cleanVendor) || cleanVendor.includes(cleanNarration))) {
+      if (cleanVendor && cleanVendor.length > 3 && (cleanNarration.includes(cleanVendor) || cleanVendor.includes(cleanNarration))) {
         if (Math.abs(inv.totalAmount - bankAmount) < 0.01) {
           candidateInvoice = inv;
           break;
@@ -38,19 +44,7 @@ export async function matchTier1(bankTxn) {
     }
   }
 
-  // 3. Fallback: If only a single unpaid invoice in the database matches this exact gross amount
-  if (!candidateInvoice && bankAmount > 0) {
-    const matchingInvoices = await Invoice.find({
-      totalAmount: bankAmount,
-      status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-    }).limit(2).lean();
-
-    if (matchingInvoices.length === 1) {
-      candidateInvoice = matchingInvoices[0];
-    }
-  }
-
-  // 4. Exact Gross Amount Match Verification (Strictly 0 Deductions for Tier 1)
+  // 3. Exact Gross Amount Match Verification (Strictly 0 Deductions for Tier 1)
   if (candidateInvoice) {
     const diff = Math.abs(candidateInvoice.totalAmount - bankAmount);
     if (diff < 0.01) {
@@ -59,7 +53,7 @@ export async function matchTier1(bankTxn) {
         matched: true,
         tier: 'TIER_1',
         invoice: candidateInvoice,
-        confidence: 1.0,
+        confidence: 0.99,
         deductions: {
           tdsAmount: 0,
           tdsRate: 0,
@@ -74,15 +68,19 @@ export async function matchTier1(bankTxn) {
     }
   }
 
-  // 5. Check exact UTR match if previously mapped or referenced
+  // 4. Check exact UTR match if previously mapped
   if (bankTxn.utrNumber) {
-    const utrInvoice = await Invoice.findOne({
-      $or: [
-        { 'metadata.expectedUtr': bankTxn.utrNumber },
-        { invoiceNumber: bankTxn.utrNumber },
-      ],
-      status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
-    }).lean();
+    let utrInvoice = null;
+    if (context.allInvoices) {
+      utrInvoice = context.allInvoices.find(
+        (inv) => inv.status !== 'PAID' && (inv.metadata?.expectedUtr === bankTxn.utrNumber || inv.invoiceNumber === bankTxn.utrNumber)
+      );
+    } else {
+      utrInvoice = await Invoice.findOne({
+        $or: [{ 'metadata.expectedUtr': bankTxn.utrNumber }, { invoiceNumber: bankTxn.utrNumber }],
+        status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+      }).lean();
+    }
 
     if (utrInvoice && Math.abs(utrInvoice.totalAmount - bankAmount) < 0.01) {
       const durationMs = performance.now() - startTime;
@@ -110,8 +108,10 @@ export async function matchTier1(bankTxn) {
     matched: false,
     tier: 'TIER_1',
     invoice: candidateInvoice || null,
-    confidence: candidateInvoice ? 0.5 : 0.0,
+    confidence: candidateInvoice ? 0.4 : 0,
     durationMs,
-    reason: candidateInvoice ? 'Amount differs from gross (has deductions/variance), delegating to Tier 2/3' : 'No exact invoice match found in Tier 1',
+    reason: candidateInvoice
+      ? `Gross amount mismatch: Invoice ₹${candidateInvoice.totalAmount} vs Bank ₹${bankAmount}. Passing to Tier 2.`
+      : 'No exact invoice/gross match found. Passing to Tier 2.',
   };
 }

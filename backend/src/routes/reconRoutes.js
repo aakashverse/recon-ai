@@ -1,13 +1,21 @@
 import express from 'express';
 import { sseManager } from '../utils/sseManager.js';
-import { ReconciliationEngine } from '../services/reconciliationEngine.js';
+import { ReconciliationEngine, resetChainPointer } from '../services/reconciliationEngine.js';
 import { OutboxService } from '../services/outboxService.js';
 import { BankLedger } from '../models/BankLedger.js';
 import { Invoice } from '../models/Invoice.js';
 import { ReconciliationEvent } from '../models/ReconciliationEvent.js';
 import { RuleCache } from '../models/RuleCache.js';
-import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, isAIAvailable } from '../config/ai.js';
+import { JournalEntry } from '../models/JournalEntry.js';
+import multer from 'multer';
+import { getApiKeyStatus, initGemini, getGeminiModel, getTextGenModel, getGenAI, getActiveModelName, isAIAvailable } from '../config/ai.js';
 import { parseCSV, normalizeBankStatementRows, normalizeInvoiceRows } from '../utils/csvParser.js';
+import { runSettlementAgent } from '../services/settlementAgent.js';
+import { JournalService } from '../services/journalService.js';
+import { calculateEventHash, GENESIS_HASH } from '../utils/hasher.js';
+import { clearRAGCache } from '../services/tier3GenAIPool.js';
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 export const reconRouter = express.Router();
 
@@ -153,9 +161,9 @@ reconRouter.post('/ai-parse-and-structure', async (req, res) => {
       return res.status(400).json({ error: 'rawText is required' });
     }
 
-    const jsonModel = getGeminiModel() || getTextGenModel();
+    const model = getGeminiModel() || getTextGenModel();
 
-    if (isAIAvailable() && jsonModel) {
+    if (isAIAvailable() && model) {
       try {
         const prompt = `You are Razorpay's Enterprise AI Financial Data Structurer.
 Convert the following unstructured, messy financial text (which could be an email snippet, raw bank statement, check deposit log, or invoice list) into a clean, canonical JSON structure.
@@ -199,7 +207,7 @@ ${rawText}
 
 Return ONLY a valid JSON object without code blocks or markdown text.`;
 
-        const result = await textModel.generateContent(prompt);
+        const result = await model.generateContent(prompt);
         const responseText = result.response.text().trim();
         const cleanJsonStr = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
         const parsed = JSON.parse(cleanJsonStr);
@@ -226,6 +234,110 @@ Return ONLY a valid JSON object without code blocks or markdown text.`;
       type: targetType,
       records: normalized,
       message: `Parsed & structured ${normalized.length} records via intelligent local parser.`,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Item 7: Multimodal PDF & Scanned-Statement Ingestion
+ * Uses Gemini 1.5 Flash Vision to extract structured transaction rows from PDF / Image files
+ */
+reconRouter.post('/upload-multimodal-statement', upload.single('statementFile'), async (req, res) => {
+  try {
+    const file = req.file;
+    const targetType = req.body.targetType || 'BANK_TRANSACTIONS';
+
+    if (!file) {
+      return res.status(400).json({ error: 'statementFile is required (PDF, PNG, JPG, JPEG)' });
+    }
+
+    const genAI = getGenAI();
+    const activeModel = getActiveModelName();
+
+    if (isAIAvailable() && genAI) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: activeModel,
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        });
+
+        const prompt = `You are an expert Indian B2B Banking Document OCR & Normalizer.
+Extract structured table records from this uploaded bank statement document / image.
+
+Target Schema: ${targetType === 'INVOICES' ? 'INVOICES' : 'BANK_TRANSACTIONS'}
+
+If Target is BANK_TRANSACTIONS, output JSON conforming strictly to:
+{
+  "type": "BANK_TRANSACTIONS",
+  "records": [
+    {
+      "bankTxnId": string,
+      "utrNumber": string,
+      "amount": number,
+      "narration": string,
+      "txnDate": "YYYY-MM-DD"
+    }
+  ]
+}
+
+If Target is INVOICES, output JSON conforming strictly to:
+{
+  "type": "INVOICES",
+  "records": [
+    {
+      "invoiceNumber": string,
+      "customerName": string,
+      "totalAmount": number,
+      "baseAmount": number,
+      "taxAmount": number,
+      "expectedTdsSection": "194C" | "194J" | "194H" | "194Q" | "NONE",
+      "expectedTdsRate": number
+    }
+  ]
+}
+
+Return ONLY valid JSON matching this schema.`;
+
+        const imagePart = {
+          inlineData: {
+            data: file.buffer.toString('base64'),
+            mimeType: file.mimetype || 'application/pdf',
+          },
+        };
+
+        const result = await model.generateContent([prompt, imagePart]);
+        const responseText = result.response.text().trim();
+        const cleanJsonStr = responseText.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '');
+        const parsed = JSON.parse(cleanJsonStr);
+
+        return res.json({
+          success: true,
+          source: 'GEMINI_1_5_FLASH_MULTIMODAL_VISION',
+          type: parsed.type,
+          records: parsed.records || [],
+          message: `Extracted ${parsed.records?.length || 0} structured records from ${file.originalname} via Gemini 1.5 Flash Vision.`,
+        });
+      } catch (err) {
+        console.warn('[Multimodal OCR] Gemini Vision error, attempting local buffer parse:', err.message);
+      }
+    }
+
+    // Fallback: If text content is readable from buffer, parse heuristic lines
+    const textBuffer = file.buffer.toString('utf8');
+    const rows = parseCSV(textBuffer);
+    const normalized = targetType === 'INVOICES' ? normalizeInvoiceRows(rows) : normalizeBankStatementRows(rows);
+
+    return res.json({
+      success: true,
+      source: 'LOCAL_DOCUMENT_NORMALIZER',
+      type: targetType,
+      records: normalized,
+      message: `Extracted & normalized ${normalized.length} records from uploaded document.`,
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
@@ -371,6 +483,215 @@ reconRouter.post('/resolve-exception', async (req, res) => {
 });
 
 /**
+ * Confirm AI-Proposed Match (v5 Graduated Autonomy)
+ * Advances Rule trust level (FIRST_TIME -> CONFIRMED_ONCE -> PROVISIONAL_AUTO -> FULLY_TRUSTED)
+ * Commits invoice as PAID and appends hash-chained confirmation event.
+ */
+reconRouter.post('/confirm-proposal', async (req, res) => {
+  try {
+    const { bankTxnId, accountantNotes } = req.body;
+    if (!bankTxnId) return res.status(400).json({ error: 'bankTxnId is required' });
+
+    const bankTxn = await BankLedger.findOne({ bankTxnId });
+    if (!bankTxn) return res.status(404).json({ error: 'Bank transaction not found' });
+
+    const candidateInvoiceId = bankTxn.reconciledInvoiceId || bankTxn.proposalDetails?.proposedInvoiceId;
+    const candidateInvoice = candidateInvoiceId ? await Invoice.findById(candidateInvoiceId) : null;
+
+    if (candidateInvoice) {
+      candidateInvoice.status = 'PAID';
+      candidateInvoice.paidAmount = bankTxn.amount;
+      candidateInvoice.reconciledBankTxnId = bankTxn._id;
+      candidateInvoice.reconciledAt = new Date();
+      candidateInvoice.reconMethod = 'ACCOUNTANT_CONFIRMED';
+      await candidateInvoice.save();
+    }
+
+    bankTxn.reconciliationStatus = 'MATCHED';
+    bankTxn.matchedTier = 'ACCOUNTANT_CONFIRMED';
+    bankTxn.accountabilityStatement = 'Accountant confirmed — pattern promoted in trust hierarchy.';
+    await bankTxn.save();
+
+    // Graduate trust on any associated RuleCache rule
+    let rule = null;
+    if (candidateInvoice?.customerName) {
+      rule = await RuleCache.findOne({ partyIdentifier: candidateInvoice.customerName.toUpperCase() });
+      if (rule) {
+        await rule.graduateTrust();
+      }
+    }
+
+    // Post double-entry General Ledger entry
+    if (candidateInvoice) {
+      const journalDocData = JournalService.generateJournalEntry(bankTxn, candidateInvoice, {
+        matched: true,
+        deductions: bankTxn.deductionsApplied || {},
+      });
+      await JournalEntry.create([journalDocData]);
+    }
+
+    // Append cryptographic audit event to hash chain
+    const lastEvent = await ReconciliationEvent.findOne().sort({ chainIndex: -1 }).lean();
+    const previousEventHash = lastEvent?.eventHash || GENESIS_HASH;
+    const chainIndex = (lastEvent?.chainIndex || 0) + 1;
+
+    const eventHash = calculateEventHash(previousEventHash, {
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceNumber: candidateInvoice?.invoiceNumber || 'NONE',
+      resolvedTier: 'ACCOUNTANT_CONFIRMED',
+      bankAmount: bankTxn.amount,
+      circuitBreakerResult: { passed: true, equation: 'Accountant Sign-Off' },
+      batchId: 'MANUAL_GOVERNANCE',
+    });
+
+    const confirmationEvent = await ReconciliationEvent.create({
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceId: candidateInvoice?._id || null,
+      invoiceNumber: candidateInvoice?.invoiceNumber || 'NONE',
+      reconciliationStatus: 'MATCHED',
+      resolvedTier: 'ACCOUNTANT_CONFIRMED',
+      trustLevel: rule?.trustLevel || 'CONFIRMED_ONCE',
+      accountabilityStatement: 'Accountant confirmed — pattern promoted in trust hierarchy.',
+      bankAmount: bankTxn.amount,
+      confidenceScore: 1.0,
+      rawNarration: bankTxn.narration,
+      previousEventHash,
+      eventHash,
+      overrideDetails: { accountantNotes, confirmedAt: new Date() },
+    });
+
+    sseManager.broadcast('txn:confirmed', {
+      bankTxnId: bankTxn.bankTxnId,
+      status: 'MATCHED',
+      resolvedTier: 'ACCOUNTANT_CONFIRMED',
+      eventHash: confirmationEvent.eventHash,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Proposal confirmed and committed to General Ledger.',
+      bankTxn,
+      ruleTrustLevel: rule?.trustLevel || null,
+      eventHash: confirmationEvent.eventHash,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Override/Reject AI Match (v5 Trust & Governance)
+ * Downgrades Rule trust level, reverts invoice status, and records an immutable override event in the hash chain.
+ */
+reconRouter.post('/override-match', async (req, res) => {
+  try {
+    const { bankTxnId, reason, overrideInvoiceId } = req.body;
+    if (!bankTxnId) return res.status(400).json({ error: 'bankTxnId is required' });
+
+    const bankTxn = await BankLedger.findOne({ bankTxnId });
+    if (!bankTxn) return res.status(404).json({ error: 'Bank transaction not found' });
+
+    const originalProposal = {
+      reconciliationStatus: bankTxn.reconciliationStatus,
+      matchedTier: bankTxn.matchedTier,
+      reconciledInvoiceId: bankTxn.reconciledInvoiceId,
+      proposalDetails: bankTxn.proposalDetails,
+    };
+
+    // If previous invoice was marked PAID, revert it to UNPAID
+    if (bankTxn.reconciledInvoiceId) {
+      await Invoice.findByIdAndUpdate(bankTxn.reconciledInvoiceId, {
+        status: 'UNPAID',
+        paidAmount: 0,
+        reconciledBankTxnId: null,
+        reconciledAt: null,
+        reconMethod: null,
+      });
+    }
+
+    bankTxn.reconciliationStatus = 'OVERRIDDEN';
+    bankTxn.matchedTier = 'MANUAL';
+    bankTxn.reconciledInvoiceId = overrideInvoiceId || null;
+    bankTxn.accountabilityStatement = 'Accountant override logged — rule trust downgraded in ledger.';
+    bankTxn.overrideDetails = {
+      originalProposal,
+      accountantReason: reason || 'Accountant manual override',
+      overriddenBy: 'ACCOUNTANT_CONTROLLER',
+      overriddenAt: new Date(),
+    };
+    await bankTxn.save();
+
+    // If there is an associated RuleCache rule, downgrade its trust level
+    let rule = null;
+    if (originalProposal.reconciledInvoiceId) {
+      const inv = await Invoice.findById(originalProposal.reconciledInvoiceId).lean();
+      if (inv?.customerName) {
+        rule = await RuleCache.findOne({ partyIdentifier: inv.customerName.toUpperCase() });
+        if (rule) {
+          await rule.downgradeTrust();
+        }
+      }
+    }
+
+    // Append cryptographic audit event to hash chain
+    const lastEvent = await ReconciliationEvent.findOne().sort({ chainIndex: -1 }).lean();
+    const previousEventHash = lastEvent?.eventHash || GENESIS_HASH;
+    const chainIndex = (lastEvent?.chainIndex || 0) + 1;
+
+    const eventHash = calculateEventHash(previousEventHash, {
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceNumber: 'OVERRIDDEN',
+      resolvedTier: 'ACCOUNTANT_OVERRIDE',
+      bankAmount: bankTxn.amount,
+      circuitBreakerResult: { passed: false, equation: 'Accountant Manual Override' },
+      batchId: 'MANUAL_GOVERNANCE',
+    });
+
+    const overrideEvent = await ReconciliationEvent.create({
+      chainIndex,
+      bankTxnId: bankTxn.bankTxnId,
+      invoiceId: overrideInvoiceId || null,
+      invoiceNumber: 'OVERRIDDEN',
+      reconciliationStatus: 'OVERRIDDEN',
+      resolvedTier: 'ACCOUNTANT_OVERRIDE',
+      trustLevel: rule?.trustLevel || 'FIRST_TIME',
+      accountabilityStatement: 'Accountant override logged — rule trust downgraded in ledger.',
+      bankAmount: bankTxn.amount,
+      confidenceScore: 1.0,
+      rawNarration: bankTxn.narration,
+      previousEventHash,
+      eventHash,
+      overrideDetails: {
+        originalProposal,
+        accountantReason: reason || 'Accountant manual override',
+        overriddenBy: 'ACCOUNTANT_CONTROLLER',
+        overriddenAt: new Date(),
+      },
+    });
+
+    sseManager.broadcast('txn:overridden', {
+      bankTxnId: bankTxn.bankTxnId,
+      status: 'OVERRIDDEN',
+      resolvedTier: 'ACCOUNTANT_OVERRIDE',
+      eventHash: overrideEvent.eventHash,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Transaction overridden and recorded in cryptographic hash chain.',
+      bankTxn,
+      ruleTrustLevel: rule?.trustLevel || null,
+      eventHash: overrideEvent.eventHash,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * Get Live Dashboard Metrics & Analytics
  */
 reconRouter.get('/stats', async (req, res) => {
@@ -378,6 +699,7 @@ reconRouter.get('/stats', async (req, res) => {
     const [
       totalLedgerCount,
       matchedCount,
+      proposedCount,
       exceptionCount,
       unprocessedCount,
       tier1Count,
@@ -385,9 +707,11 @@ reconRouter.get('/stats', async (req, res) => {
       tier3Count,
       invoices,
       recentEvents,
+      ragCacheHitsCount,
     ] = await Promise.all([
       BankLedger.countDocuments(),
       BankLedger.countDocuments({ reconciliationStatus: 'MATCHED' }),
+      BankLedger.countDocuments({ reconciliationStatus: 'PROPOSED' }),
       BankLedger.countDocuments({ reconciliationStatus: 'EXCEPTION' }),
       BankLedger.countDocuments({ reconciliationStatus: 'UNPROCESSED' }),
       BankLedger.countDocuments({ matchedTier: 'TIER_1' }),
@@ -395,6 +719,7 @@ reconRouter.get('/stats', async (req, res) => {
       BankLedger.countDocuments({ matchedTier: 'TIER_3' }),
       Invoice.find().lean(),
       ReconciliationEvent.find().sort({ createdAt: -1 }).limit(100).lean(),
+      BankLedger.countDocuments({ 'executionMetrics.ragCacheHit': true }),
     ]);
 
     const totalInflow = invoices
@@ -413,9 +738,10 @@ reconRouter.get('/stats', async (req, res) => {
 
     // Cost economics calculation
     // Naive 100% LLM cost = $0.005 per txn
-    // Hybrid Cost = Tier 3 only ($0.005 * tier3Count)
+    // Hybrid Cost = Tier 3 non-RAG calls only ($0.005 * (tier3Count - ragCacheHits))
+    const realTier3Calls = Math.max(0, tier3Count - ragCacheHitsCount);
     const naiveCostUsd = totalLedgerCount * 0.005;
-    const hybridCostUsd = tier3Count * 0.005;
+    const hybridCostUsd = realTier3Calls * 0.005;
     const savingsPercent = naiveCostUsd > 0 ? Number((((naiveCostUsd - hybridCostUsd) / naiveCostUsd) * 100).toFixed(1)) : 100;
 
     const matchRatePercent = totalLedgerCount > 0 ? Number(((matchedCount / totalLedgerCount) * 100).toFixed(1)) : 0;
@@ -423,6 +749,7 @@ reconRouter.get('/stats', async (req, res) => {
     return res.json({
       totalTransactions: totalLedgerCount,
       matchedCount,
+      proposedCount,
       exceptionCount,
       unprocessedCount,
       matchRatePercent,
@@ -432,8 +759,9 @@ reconRouter.get('/stats', async (req, res) => {
         tier1: tier1Count,
         tier2: tier2Count,
         tier3: tier3Count,
-        manual: matchedCount - (tier1Count + tier2Count + tier3Count),
+        manual: Math.max(0, matchedCount - (tier1Count + tier2Count + tier3Count)),
       },
+      ragCacheHits: ragCacheHitsCount,
       latencyMetrics: {
         p50Ms: Number(p50.toFixed(1)),
         p95Ms: Number(p95.toFixed(1)),
@@ -444,7 +772,80 @@ reconRouter.get('/stats', async (req, res) => {
         hybridCostUsd: Number(hybridCostUsd.toFixed(3)),
         savingsPercent,
       },
+      hashChainLength: recentEvents.length,
     });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Export Comprehensive Reconciliation Evidence Report for Auditor (CSV)
+ */
+reconRouter.get('/export-audit', async (req, res) => {
+  try {
+    const events = await ReconciliationEvent.find()
+      .populate('invoiceId')
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const headers = [
+      'Audit Event Hash',
+      'Previous Event Hash',
+      'Bank Txn ID',
+      'Transaction Date',
+      'Bank Amount (INR)',
+      'Status',
+      'Resolution Tier',
+      'Trust Level',
+      'Accountability Statement',
+      'Reconciled Invoice Number',
+      'Invoice Gross (INR)',
+      'Deductions Total (INR)',
+      'Circuit Breaker Equation',
+      'Confidence Score',
+      'RAG Cache Hit',
+      'Override / Confirmation Notes',
+      'Execution Latency (ms)',
+      'Raw Narration',
+    ];
+
+    const rows = events.map((e) => {
+      const invNum = e.invoiceNumber || e.invoiceId?.invoiceNumber || (e.splitInvoices?.length ? e.splitInvoices.map((s) => s.invoiceNumber).join(' + ') : 'N/A');
+      const gross = e.circuitBreakerResult?.invoiceGross || (e.invoiceId?.totalAmount || 'N/A');
+      const deductions = e.circuitBreakerResult?.deductionsTotal || 0;
+      const cbEq = `"${(e.circuitBreakerResult?.equation || '').replace(/"/g, '""')}"`;
+      const narration = `"${(e.rawNarration || '').replace(/"/g, '""')}"`;
+      const accountability = `"${(e.accountabilityStatement || '').replace(/"/g, '""')}"`;
+      const notes = `"${(e.overrideDetails?.accountantReason || e.overrideDetails?.accountantNotes || '').replace(/"/g, '""')}"`;
+
+      return [
+        e.eventHash,
+        e.previousEventHash || 'GENESIS',
+        e.bankTxnId,
+        new Date(e.createdAt).toISOString(),
+        e.circuitBreakerResult?.bankReceived || e.bankAmount || 0,
+        e.reconciliationStatus || (e.resolvedTier === 'OUTBOX_EXCEPTION' ? 'EXCEPTION' : 'MATCHED'),
+        e.resolvedTier,
+        e.trustLevel || 'UNRATED',
+        accountability,
+        invNum,
+        gross,
+        deductions,
+        cbEq,
+        e.confidence,
+        e.ragCacheHit ? 'YES' : 'NO',
+        notes,
+        e.totalDurationMs ? Number(e.totalDurationMs.toFixed(1)) : '<1',
+        narration,
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="razorpay-recon-audit-report-${Date.now()}.csv"`);
+    return res.status(200).send(csvContent);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }
@@ -458,6 +859,7 @@ reconRouter.get('/feed', async (req, res) => {
     const limit = parseInt(req.query.limit || '100', 10);
     const feed = await BankLedger.find()
       .populate('reconciledInvoiceId')
+      .populate('splitInvoices.invoiceId')
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean();
@@ -492,16 +894,185 @@ reconRouter.get('/events/:bankTxnId', async (req, res) => {
  */
 reconRouter.post('/reset', async (req, res) => {
   try {
+    clearRAGCache();
+    await resetChainPointer();
     await Promise.all([
       BankLedger.deleteMany({}),
       ReconciliationEvent.deleteMany({}),
+      JournalEntry.deleteMany({}),
       Invoice.deleteMany({ invoiceNumber: { $regex: /^BANK-/i } }),
       Invoice.updateMany({}, { $set: { status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null, reconMethod: null } }),
     ]);
+    await Invoice.updateOne({ invoiceNumber: 'INV-2024-5004' }, { $set: { status: 'PAID', paidAmount: 100000 } });
 
     sseManager.broadcast('dashboard:reset', { timestamp: new Date().toISOString() });
 
     return res.json({ success: true, message: 'Database reset successfully. Ready for fresh batch run.' });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Track-04 Direction 3 & GenAI Depth Step 2: Function-Calling Settlement Q&A Agent
+ * Answers natural-language accounting queries with grounded database function calling
+ */
+reconRouter.post('/assistant-chat', async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query || typeof query !== 'string' || !query.trim()) {
+      return res.status(400).json({ error: 'Query string is required.' });
+    }
+
+    const agentResult = await runSettlementAgent(query);
+    return res.json(agentResult);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Track-04 Direction 4: Forward Cash Forecaster
+ * Forecasts 30/60/90-day cash position from settled inflows, open receivables, and statutory liabilities
+ */
+reconRouter.get('/cash-forecast', async (req, res) => {
+  try {
+    const [reconciledLedger, openInvoices, exceptionLedger] = await Promise.all([
+      BankLedger.find({ reconciliationStatus: 'MATCHED' }).lean(),
+      Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean(),
+      BankLedger.find({ reconciliationStatus: 'EXCEPTION' }).lean(),
+    ]);
+
+    const currentBankCashInflow = reconciledLedger.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const stuckExceptionCash = exceptionLedger.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+    // Group receivables by aging buckets (0-30, 31-60, 61-90 days)
+    let bucket0to30 = 0;
+    let bucket31to60 = 0;
+    let bucket61to90 = 0;
+    let expectedTdsDeduction = 0;
+
+    const vendorBuckets = {};
+
+    for (const inv of openInvoices) {
+      const gross = Number(inv.totalAmount || 0);
+      const estTdsRate = inv.expectedTdsRate || 2; // Default 2% standard
+      const estTds = (gross * estTdsRate) / 100;
+      expectedTdsDeduction += estTds;
+
+      // Mock aging based on invoice number modulo or real date
+      const hashSeed = (inv.invoiceNumber || '').charCodeAt((inv.invoiceNumber || '').length - 1) % 3;
+      if (hashSeed === 0) {
+        bucket0to30 += gross;
+      } else if (hashSeed === 1) {
+        bucket31to60 += gross;
+      } else {
+        bucket61to90 += gross;
+      }
+
+      // Track by vendor
+      const vName = inv.customerName || 'Unknown Vendor';
+      vendorBuckets[vName] = (vendorBuckets[vName] || 0) + gross;
+    }
+
+    const topVendorsDue = Object.entries(vendorBuckets)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([name, amount]) => ({ vendorName: name, amountDue: amount }));
+
+    // Forecast projections
+    const netReceivables0to30 = bucket0to30 * 0.95; // 95% collection probability
+    const netReceivables31to60 = bucket31to60 * 0.88; // 88% collection probability
+    const netReceivables61to90 = bucket61to90 * 0.75; // 75% collection probability
+
+    const forecast = {
+      currentBankCashInflow: Number(currentBankCashInflow.toFixed(2)),
+      stuckExceptionCash: Number(stuckExceptionCash.toFixed(2)),
+      totalOpenReceivables: Number((bucket0to30 + bucket31to60 + bucket61to90).toFixed(2)),
+      expectedTdsLiabilitiesReceivable: Number(expectedTdsDeduction.toFixed(2)),
+      agingBreakdown: {
+        days0to30: Number(bucket0to30.toFixed(2)),
+        days31to60: Number(bucket31to60.toFixed(2)),
+        days61to90: Number(bucket61to90.toFixed(2)),
+      },
+      projectedNetLiquidity: {
+        tPlus30Days: Number((currentBankCashInflow + netReceivables0to30).toFixed(2)),
+        tPlus60Days: Number((currentBankCashInflow + netReceivables0to30 + netReceivables31to60).toFixed(2)),
+        tPlus90Days: Number((currentBankCashInflow + netReceivables0to30 + netReceivables31to60 + netReceivables61to90).toFixed(2)),
+      },
+      topVendorsDue,
+      liquidityHealthIndex: stuckExceptionCash > 0
+        ? Math.max(10, Math.round((currentBankCashInflow / (currentBankCashInflow + stuckExceptionCash)) * 100))
+        : 100,
+    };
+
+    return res.json(forecast);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rillet-Style AI-Native ERP Innovation 1: Live Trial Balance & Zero-Day Month-End Close
+ * Computes live, balanced General Ledger Trial Balance (Dr = Cr) and continuous close health
+ */
+reconRouter.get('/trial-balance', async (req, res) => {
+  try {
+    const data = await JournalService.getLiveTrialBalance();
+    return res.json(data);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rillet-Style AI-Native ERP Innovation 2: Double-Entry Journal Entry Stream
+ * Returns list of auto-generated journal entries with balanced debits and credits
+ */
+reconRouter.get('/journal-entries', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit || '50', 10);
+    const entries = await JournalEntry.find().sort({ createdAt: -1 }).limit(limit).lean();
+    return res.json(entries);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Rillet-Style AI-Native ERP Innovation 3: 100% Traceable AI Audit Memo per Transaction
+ * Provides full source traceback (Bank Line -> Invoice -> Tax Math -> Double Entry GL)
+ */
+reconRouter.get('/audit-memo/:bankTxnId', async (req, res) => {
+  try {
+    const { bankTxnId } = req.params;
+    const [bankTxn, event, journal] = await Promise.all([
+      BankLedger.findOne({ bankTxnId }).populate('reconciledInvoiceId').lean(),
+      ReconciliationEvent.findOne({ bankTxnId }).populate('invoiceId').lean(),
+      JournalEntry.findOne({ bankTxnId }).lean(),
+    ]);
+
+    if (!bankTxn) {
+      return res.status(404).json({ error: 'Transaction not found in ledger.' });
+    }
+
+    const memo = {
+      bankTxnId,
+      status: bankTxn.reconciliationStatus,
+      matchedTier: bankTxn.matchedTier,
+      confidenceScore: bankTxn.confidenceScore,
+      bankAmount: bankTxn.amount,
+      narration: bankTxn.narration,
+      utrNumber: bankTxn.utrNumber,
+      invoice: bankTxn.reconciledInvoiceId || event?.invoiceId || null,
+      deductions: bankTxn.deductionsApplied || {},
+      circuitBreaker: event?.circuitBreakerResult || bankTxn.discrepancyDetails || null,
+      journalEntry: journal || null,
+      cryptographicEventHash: event?.eventHash || 'GENESIS',
+      auditMemoSummary: journal?.auditMemo?.summary || bankTxn.discrepancyDetails?.reason || 'Transaction recorded in cryptographic audit ledger.',
+    };
+
+    return res.json(memo);
   } catch (error) {
     return res.status(500).json({ error: error.message });
   }

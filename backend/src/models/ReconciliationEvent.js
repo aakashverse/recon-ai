@@ -10,8 +10,10 @@ const dagNodeSchema = new mongoose.Schema(
         'STEP_TIER_1',
         'STEP_TIER_2',
         'STEP_TIER_3',
+        'STEP_FACTUAL_CLAIM_VALIDATION',
         'STEP_CIRCUIT_BREAKER',
         'STEP_COMMIT',
+        'STEP_JOURNAL',
         'STEP_OUTBOX',
       ],
     },
@@ -19,7 +21,7 @@ const dagNodeSchema = new mongoose.Schema(
     tier: { type: String, default: null },
     status: {
       type: String,
-      enum: ['PENDING', 'RUNNING', 'SUCCESS', 'BYPASSED', 'FAILED', 'DISCREPANCY_DETECTED'],
+      enum: ['PENDING', 'RUNNING', 'SUCCESS', 'BALANCED', 'BYPASSED', 'FAILED', 'DISCREPANCY_DETECTED'],
       required: true,
     },
     durationMs: { type: Number, default: 0 },
@@ -32,6 +34,11 @@ const dagNodeSchema = new mongoose.Schema(
 
 const reconciliationEventSchema = new mongoose.Schema(
   {
+    chainIndex: {
+      type: Number,
+      required: true,
+      index: true,
+    },
     bankTxnId: {
       type: String,
       required: true,
@@ -47,6 +54,13 @@ const reconciliationEventSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    splitInvoices: [
+      {
+        invoiceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Invoice' },
+        invoiceNumber: String,
+        amount: Number,
+      },
+    ],
     batchId: {
       type: String,
       default: null,
@@ -55,7 +69,38 @@ const reconciliationEventSchema = new mongoose.Schema(
     dagNodes: [dagNodeSchema],
     resolvedTier: {
       type: String,
-      enum: ['TIER_1', 'TIER_2', 'TIER_3', 'OUTBOX_EXCEPTION', 'DUPLICATE_REJECTED'],
+      enum: [
+        'TIER_1',
+        'TIER_2',
+        'TIER_3',
+        'OUTBOX_EXCEPTION',
+        'DUPLICATE_REJECTED',
+        'PROPOSED',
+        'ACCOUNTANT_CONFIRMED',
+        'ACCOUNTANT_OVERRIDE',
+      ],
+      required: true,
+    },
+    reconciliationStatus: {
+      type: String,
+      enum: ['MATCHED', 'PROPOSED', 'EXCEPTION', 'FLAGGED_FOR_HUMAN', 'OVERRIDDEN'],
+      default: 'MATCHED',
+    },
+    trustLevel: {
+      type: String,
+      enum: ['FIRST_TIME', 'CONFIRMED_ONCE', 'PROVISIONAL_AUTO', 'FULLY_TRUSTED', 'EXACT_VERIFIED', null],
+      default: null,
+    },
+    accountabilityStatement: {
+      type: String,
+      default: '',
+    },
+    overrideDetails: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    bankAmount: {
+      type: Number,
       required: true,
     },
     circuitBreakerResult: {
@@ -70,6 +115,10 @@ const reconciliationEventSchema = new mongoose.Schema(
       type: Number,
       default: 1.0,
     },
+    ragCacheHit: {
+      type: Boolean,
+      default: false,
+    },
     totalDurationMs: {
       type: Number,
       default: 0,
@@ -77,6 +126,16 @@ const reconciliationEventSchema = new mongoose.Schema(
     rawNarration: {
       type: String,
       default: '',
+    },
+    previousEventHash: {
+      type: String,
+      default: null,
+      index: true,
+    },
+    eventHash: {
+      type: String,
+      required: true,
+      index: true,
     },
   },
   {

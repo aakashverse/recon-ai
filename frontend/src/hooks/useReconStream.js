@@ -1,4 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useRef, useCallback, useEffect } from "react";
+
+function safeJsonParse(raw) {
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (e) {
+    console.warn('[SSE Stream Warning] Failed to parse event payload:', e.message);
+    return null;
+  }
+}
 
 export function useReconStream() {
   const [isConnected, setIsConnected] = useState(false);
@@ -19,6 +28,7 @@ export function useReconStream() {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const eventSourceRef = useRef(null);
+  const retryTimeoutRef = useRef(null);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -45,132 +55,167 @@ export function useReconStream() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+    let retryDelay = 2000;
+
     fetchStats();
     fetchFeed();
 
-    // Connect to SSE stream
-    const eventSource = new EventSource('/api/reconciliation/stream');
-    eventSourceRef.current = eventSource;
+    function connectSSE() {
+      if (!isMounted) return;
 
-    eventSource.onopen = () => {
-      setIsConnected(true);
-    };
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
 
-    eventSource.onerror = () => {
-      setIsConnected(false);
-    };
+      const eventSource = new EventSource('/api/reconciliation/stream');
+      eventSourceRef.current = eventSource;
 
-    eventSource.addEventListener('ready', () => {
-      setIsConnected(true);
-    });
+      eventSource.onopen = () => {
+        if (!isMounted) return;
+        setIsConnected(true);
+        retryDelay = 2000; // Reset exponential backoff
+      };
 
-    eventSource.addEventListener('batch:start', (e) => {
-      setIsProcessing(true);
-      const data = JSON.parse(e.data);
-      setBatchProgress({
-        batchId: data.batchId,
-        total: data.totalCount,
-        processed: 0,
-        percentage: 0,
+      eventSource.onerror = () => {
+        if (!isMounted) return;
+        setIsConnected(false);
+        eventSource.close();
+
+        // Resilient auto-reconnection with exponential backoff
+        clearTimeout(retryTimeoutRef.current);
+        retryTimeoutRef.current = setTimeout(() => {
+          if (isMounted) {
+            retryDelay = Math.min(retryDelay * 1.5, 15000);
+            connectSSE();
+            fetchStats();
+            fetchFeed();
+          }
+        }, retryDelay);
+      };
+
+      eventSource.addEventListener('ready', () => {
+        if (isMounted) setIsConnected(true);
       });
-    });
 
-    eventSource.addEventListener('batch:progress', (e) => {
-      const data = JSON.parse(e.data);
-      setBatchProgress({
-        batchId: data.batchId,
-        total: data.totalCount,
-        processed: data.processedCount,
-        percentage: data.percentage,
-        tierCounts: data.tierCounts,
+      eventSource.addEventListener('batch:start', (e) => {
+        const data = safeJsonParse(e.data);
+        if (!data) return;
+        setIsProcessing(true);
+        setBatchProgress({
+          batchId: data.batchId,
+          total: data.totalCount,
+          processed: 0,
+          percentage: 0,
+        });
       });
-    });
 
-    eventSource.addEventListener('batch:completed', () => {
-      setIsProcessing(false);
-      setBatchProgress(null);
-      fetchStats();
-      fetchFeed();
-    });
-
-    eventSource.addEventListener('txn:reconciled', (e) => {
-      const data = JSON.parse(e.data);
-      setTransactions((prev) => {
-        const idx = prev.findIndex((t) => t.bankTxnId === data.bankTxnId);
-        const updatedItem = {
-          bankTxnId: data.bankTxnId,
-          amount: data.amount,
-          narration: data.narration || '',
-          reconciliationStatus: 'MATCHED',
-          matchedTier: data.matchedTier,
-          confidenceScore: data.confidence || 1.0,
-          deductionsApplied: data.deductions,
-          reconciledInvoiceId: {
-            invoiceNumber: data.invoiceNumber,
-            customerName: data.customerName,
-            totalAmount: data.circuitBreaker?.invoiceGross,
-          },
-          executionMetrics: {
-            totalDurationMs: data.durationMs,
-          },
-          dagNodes: data.dagNodes,
-          circuitBreaker: data.circuitBreaker,
-          createdAt: new Date().toISOString(),
-        };
-
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = { ...next[idx], ...updatedItem };
-          return next;
-        }
-        return [updatedItem, ...prev];
+      eventSource.addEventListener('batch:progress', (e) => {
+        const data = safeJsonParse(e.data);
+        if (!data) return;
+        setBatchProgress({
+          batchId: data.batchId,
+          total: data.totalCount,
+          processed: data.processedCount,
+          percentage: data.percentage,
+          tierCounts: data.tierCounts,
+        });
       });
-      fetchStats();
-    });
 
-    eventSource.addEventListener('txn:exception', (e) => {
-      const data = JSON.parse(e.data);
-      setTransactions((prev) => {
-        const idx = prev.findIndex((t) => t.bankTxnId === data.bankTxnId);
-        const updatedItem = {
-          bankTxnId: data.bankTxnId,
-          amount: data.amount,
-          narration: data.narration,
-          reconciliationStatus: 'EXCEPTION',
-          matchedTier: null,
-          confidenceScore: data.confidence || 0.3,
-          discrepancyDetails: data.discrepancy,
-          whatsappDraft: data.whatsappDraft,
-          emailDraft: data.emailDraft,
-          reconciledInvoiceId: data.candidateInvoiceNumber ? {
-            invoiceNumber: data.candidateInvoiceNumber,
-            customerName: data.customerName,
-          } : null,
-          executionMetrics: {
-            totalDurationMs: data.durationMs,
-          },
-          dagNodes: data.dagNodes,
-          circuitBreaker: data.circuitBreaker,
-          createdAt: new Date().toISOString(),
-        };
-
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = { ...next[idx], ...updatedItem };
-          return next;
-        }
-        return [updatedItem, ...prev];
+      eventSource.addEventListener('batch:completed', () => {
+        setIsProcessing(false);
+        setBatchProgress(null);
+        fetchStats();
+        fetchFeed();
       });
-      fetchStats();
-    });
 
-    eventSource.addEventListener('dashboard:reset', () => {
-      setTransactions([]);
-      fetchStats();
-    });
+      eventSource.addEventListener('txn:reconciled', (e) => {
+        const data = safeJsonParse(e.data);
+        if (!data) return;
+        setTransactions((prev) => {
+          const idx = prev.findIndex((t) => t.bankTxnId === data.bankTxnId);
+          const updatedItem = {
+            bankTxnId: data.bankTxnId,
+            amount: data.amount,
+            narration: data.narration || '',
+            reconciliationStatus: 'MATCHED',
+            matchedTier: data.matchedTier,
+            confidenceScore: data.confidence || 1.0,
+            deductionsApplied: data.deductions,
+            reconciledInvoiceId: {
+              invoiceNumber: data.invoiceNumber,
+              customerName: data.customerName,
+              totalAmount: data.circuitBreaker?.invoiceGross,
+            },
+            executionMetrics: {
+              totalDurationMs: data.durationMs,
+            },
+            dagNodes: data.dagNodes,
+            circuitBreaker: data.circuitBreaker,
+            createdAt: new Date().toISOString(),
+          };
+
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], ...updatedItem };
+            return next;
+          }
+          return [updatedItem, ...prev];
+        });
+        fetchStats();
+      });
+
+      eventSource.addEventListener('txn:exception', (e) => {
+        const data = safeJsonParse(e.data);
+        if (!data) return;
+        setTransactions((prev) => {
+          const idx = prev.findIndex((t) => t.bankTxnId === data.bankTxnId);
+          const updatedItem = {
+            bankTxnId: data.bankTxnId,
+            amount: data.amount,
+            narration: data.narration,
+            reconciliationStatus: 'EXCEPTION',
+            matchedTier: null,
+            confidenceScore: data.confidence || 0.3,
+            discrepancyDetails: data.discrepancy,
+            whatsappDraft: data.whatsappDraft,
+            emailDraft: data.emailDraft,
+            reconciledInvoiceId: data.candidateInvoiceNumber ? {
+              invoiceNumber: data.candidateInvoiceNumber,
+              customerName: data.customerName,
+            } : null,
+            executionMetrics: {
+              totalDurationMs: data.durationMs,
+            },
+            dagNodes: data.dagNodes,
+            circuitBreaker: data.circuitBreaker,
+            createdAt: new Date().toISOString(),
+          };
+
+          if (idx >= 0) {
+            const next = [...prev];
+            next[idx] = { ...next[idx], ...updatedItem };
+            return next;
+          }
+          return [updatedItem, ...prev];
+        });
+        fetchStats();
+      });
+
+      eventSource.addEventListener('dashboard:reset', () => {
+        setTransactions([]);
+        fetchStats();
+      });
+    }
+
+    connectSSE();
 
     return () => {
-      eventSource.close();
+      isMounted = false;
+      clearTimeout(retryTimeoutRef.current);
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+      }
     };
   }, [fetchStats, fetchFeed]);
 

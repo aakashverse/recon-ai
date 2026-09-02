@@ -1,12 +1,23 @@
-import React from 'react';
-import { ShieldCheck, Play, RefreshCw, Layers, Cpu, Sparkles, Bot, UploadCloud } from 'lucide-react';
+﻿import React from 'react';
+import {
+  ShieldCheck,
+  Play,
+  RefreshCw,
+  Layers,
+  Sparkles,
+  Bot,
+  UploadCloud,
+  Download,
+  BookOpen,
+} from 'lucide-react';
 
 export function Header({
   isConnected,
   isProcessing,
   totalTransactionsCount,
   onTriggerBatch,
-  onSimulateLive,
+  onOpenLedger,
+  onOpenController,
   onOpenRules,
   onOpenAISettings,
   onOpenImporter,
@@ -14,86 +25,136 @@ export function Header({
 }) {
   const hasTransactions = totalTransactionsCount > 0;
 
+  const handleExportAudit = () => {
+    window.location.href = '/api/reconciliation/export-audit';
+  };
+
   return (
-    <header className="border-b border-razor-border bg-razor-card/80 backdrop-blur-md sticky top-0 z-30 px-6 py-4">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <header className="border-b border-razor-border bg-razor-card/90 backdrop-blur-md sticky top-0 z-30 px-4 lg:px-6 py-3.5">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
         {/* Brand & Title */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-razor-navy to-razor-blue flex items-center justify-center shadow-lg shadow-razor-blue/20 border border-razor-blue/30">
-            <ShieldCheck className="w-6 h-6 text-white" />
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-razor-navy to-razor-blue flex items-center justify-center shadow-md shadow-razor-blue/20 border border-razor-blue/30 shrink-0">
+            <ShieldCheck className="w-5 h-5 text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                Razorpay <span className="text-razor-blue font-extrabold">Recon AI</span>
+              <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-1.5">
+                <span className="text-razor-blue font-extrabold">Razorpay</span>
+                <span>Recon AI</span>
               </h1>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono flex items-center gap-1">
-                <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono flex items-center gap-1">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${
+                    isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                  }`}
+                ></span>
                 {isConnected ? 'SSE Live' : 'Connecting...'}
               </span>
             </div>
-            <p className="text-xs text-slate-400">
-              Enterprise B2B AI Finance Controller • Zero-Trust Circuit Breaker
+            <p className="text-[11px] text-slate-400 hidden sm:block">
+              3-Tier AI Finance Controller
             </p>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center flex-wrap gap-2.5">
-          {/* Primary CSV / Data Ingestion Button */}
+        {/* Action Controls — Single Line with Strict Non-Wrapping */}
+        <div className="flex items-center gap-2 flex-nowrap shrink-0">
+          {/* 1. Import CSV / Data */}
           <button
             onClick={onOpenImporter}
-            className="px-3.5 py-2 text-xs font-bold rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/30 transition-all flex items-center gap-1.5 shadow-md shadow-emerald-600/20 cursor-pointer animate-pulse-slow"
-            title="Upload Real Bank Statements or Invoices (CSV / Excel / JSON)"
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/40 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+            title="Upload Bank Statements or Invoices (CSV / Excel / JSON)"
           >
-            <UploadCloud className="w-4 h-4 text-white" />
-            <span>Import Real CSV / Data</span>
+            <UploadCloud className="w-3.5 h-3.5 text-blue-400" />
+            <span>Import CSV</span>
           </button>
 
+          {/* 2. General Ledger & Close */}
           <button
-            onClick={onOpenAISettings}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 border border-purple-500/40 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-            title="Configure Gemini 1.5 Flash Free Tier API Key"
+            onClick={onOpenLedger}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-teal-950/40 hover:bg-teal-900/60 text-teal-300 border border-teal-500/40 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+            title="Open Rillet-Style Double-Entry General Ledger & Live Trial Balance"
           >
-            <Bot className="w-3.5 h-3.5 text-purple-400" />
-            <span>AI Engine</span>
+            <BookOpen className="w-3.5 h-3.5 text-teal-400" />
+            <span>General Ledger</span>
           </button>
 
+          {/* 3. AI Finance Controller & Cash Forecaster */}
+          <button
+            onClick={onOpenController}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-300 border border-indigo-500/40 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+            title="Open Settlement Q&A Agent and Forward 30/60/90-Day Cash Forecaster"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
+            <span>AI Controller</span>
+          </button>
+
+          {/* 4. Export Auditor CSV */}
+          <button
+            onClick={handleExportAudit}
+            className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700/80 transition-all flex items-center gap-1.5 shadow-sm cursor-pointer whitespace-nowrap"
+            title="Download Cryptographically Chained Auditor Evidence CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-slate-400" />
+            <span className="hidden md:inline">Audit CSV</span>
+          </button>
+
+          {/* Divider */}
+          <div className="h-4 w-px bg-slate-800 mx-0.5 hidden sm:block"></div>
+
+          {/* 5. Rule Cache (Tier 3) */}
           <button
             onClick={onOpenRules}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 transition-all flex items-center gap-1.5 shadow-sm"
+            className="p-1.5 text-slate-400 hover:text-purple-300 rounded-lg hover:bg-slate-800/80 border border-transparent hover:border-slate-700 transition cursor-pointer"
+            title="View & Manage Tier-3 Self-Healing Rule Cache"
           >
-            <Layers className="w-3.5 h-3.5 text-razor-purple" />
-            <span>Rule Cache (Tier 2)</span>
+            <Layers className="w-4 h-4 text-purple-400" />
           </button>
 
+          {/* 6. AI Engine Settings */}
+          <button
+            onClick={onOpenAISettings}
+            className="p-1.5 text-slate-400 hover:text-indigo-300 rounded-lg hover:bg-slate-800/80 border border-transparent hover:border-slate-700 transition cursor-pointer"
+            title="Configure Gemini 1.5 Flash API Key & Settings"
+          >
+            <Bot className="w-4 h-4 text-indigo-400" />
+          </button>
+
+          {/* 7. Reset Ledger */}
           <button
             onClick={onReset}
             disabled={isProcessing}
-            className="px-3.5 py-2 text-xs font-medium rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 transition-all flex items-center gap-1.5 disabled:opacity-50"
-            title="Clear current ledger & start fresh"
+            className="p-1.5 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800/80 border border-transparent hover:border-slate-700 transition disabled:opacity-50 cursor-pointer"
+            title="Reset Ledger & Clear Feed"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${isProcessing ? 'animate-spin' : ''}`} />
-            <span>Reset</span>
+            <RefreshCw
+              className={`w-4 h-4 ${isProcessing ? 'animate-spin text-razor-blue' : ''}`}
+            />
           </button>
 
+          {/* 8. Primary Reconcile Batch Button */}
           <button
             onClick={onTriggerBatch}
             disabled={isProcessing || !hasTransactions}
-            className={`px-4 py-2 text-xs font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+            className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
               hasTransactions
-                ? 'bg-razor-blue hover:bg-razor-blueHover text-white shadow-md shadow-razor-blue/25 cursor-pointer'
+                ? 'bg-razor-blue hover:bg-razor-blueHover text-white shadow-md shadow-razor-blue/30 cursor-pointer'
                 : 'bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60'
             }`}
-            title={hasTransactions ? 'Run reconciliation batch on current transactions' : 'Upload bank statement CSV first to enable batch reconciliation'}
+            title={
+              hasTransactions
+                ? 'Run 4-Tier Reconciliation Batch on current transactions'
+                : 'Import bank statement CSV first to enable batch reconciliation'
+            }
           >
             <Play className={`w-3.5 h-3.5 ${isProcessing ? 'animate-spin' : 'fill-current'}`} />
             <span>
               {isProcessing
                 ? 'Reconciling...'
                 : hasTransactions
-                ? `Reconcile Feed (${totalTransactionsCount} Txns)`
-                : 'Reconcile Feed (No Data)'}
+                ? `Reconcile (${totalTransactionsCount})`
+                : 'Reconcile'}
             </span>
           </button>
         </div>

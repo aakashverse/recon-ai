@@ -8,13 +8,20 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node scripts/seed-data.js",
-    "benchmark": "node scripts/run-benchmark.js"
+    "benchmark": "node scripts/run-benchmark.js",
+    "benchmark:mock": "node scripts/run-benchmark.js --mock-llm",
+    "verify-chain": "node scripts/verify-chain.js",
+    "fault-demo": "node scripts/fault-injection-demo.js",
+    "eval-genai": "node scripts/eval-genai.js",
+    "eval-genai:mock": "node scripts/eval-genai.js --mock-llm",
+    "test": "node --test test/adversarial.test.js test/tiers.test.js test/trust-governance.test.js test/error-handling.test.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "fast-levenshtein": "^3.0.0",
     "mongoose": "^8.12.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",

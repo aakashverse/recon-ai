@@ -12,7 +12,8 @@ import {
   Sparkles,
   Bot,
 } from 'lucide-react';
-import SAMPLE_BATCH_50 from '../sample-batch-50.json';
+import SAMPLE_BATCH_50 from '../data/sample-batch-50.json';
+import SAMPLE_BENCHMARK_20 from '../data/sample-benchmark-20.json';
 
 export function DataImporterModal({ onClose, onFeedImported, onInvoicesImported }) {
   const [activeTab, setActiveTab] = useState('BANK_FEED'); // 'BANK_FEED' | 'INVOICES'
@@ -31,9 +32,48 @@ INV-2024-8001,Reliance Retail Ltd,100000,84745.76,15254.24,194C,2
 INV-2024-8002,Tata Digital Services,250000,211864.41,38135.59,194J,10
 INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
 
-  const handleFileUpload = (e) => {
+  const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    const isPdfOrImage =
+      file.type.includes('pdf') ||
+      file.type.includes('image') ||
+      /\.(pdf|png|jpe?g)$/i.test(file.name);
+
+    if (isPdfOrImage) {
+      setIsAIStructuring(true);
+      setFeedback({ type: 'info', message: `Analyzing ${file.name} with Gemini 1.5 Flash Vision OCR...` });
+      try {
+        const formData = new FormData();
+        formData.append('statementFile', file);
+        formData.append('targetType', activeTab);
+
+        const res = await fetch('/api/reconciliation/upload-multimodal-statement', {
+          method: 'POST',
+          body: formData,
+        });
+
+        const data = await res.json();
+        if (res.ok && data.records?.length) {
+          setCsvContent(JSON.stringify(data.records, null, 2));
+          setFeedback({
+            type: 'success',
+            message: `✨ ${data.message || `Extracted ${data.records.length} records via Gemini Vision.`}`,
+          });
+        } else {
+          setFeedback({
+            type: 'error',
+            message: data.error || 'Failed to extract records from document.',
+          });
+        }
+      } catch (err) {
+        setFeedback({ type: 'error', message: `Vision Ingestion Error: ${err.message}` });
+      } finally {
+        setIsAIStructuring(false);
+      }
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -47,11 +87,27 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
     if (activeTab === 'BANK_FEED') {
       const csv =
         'Date,Narration,Credit,UTR\n' +
-        SAMPLE_BATCH_50.map((t) => `${t.txnDate},${t.narration},${t.amount},${t.utrNumber}`).join('\n');
+        SAMPLE_BATCH_50.map((t) => `${t.txnDate},"${t.narration}",${t.amount},${t.utrNumber}`).join('\n');
       setCsvContent(csv);
       setFeedback({
         type: 'info',
         message: `Loaded ${SAMPLE_BATCH_50.length} real-world stress test bank transactions into workspace.`,
+      });
+    } else {
+      setCsvContent(sampleInvoiceCSV);
+      setFeedback({ type: 'info', message: 'Loaded enterprise sample invoices into workspace.' });
+    }
+  };
+
+  const handleLoadBenchmark20 = () => {
+    if (activeTab === 'BANK_FEED') {
+      const csv =
+        'Date,Narration,Credit,UTR\n' +
+        SAMPLE_BENCHMARK_20.map((t) => `${t.txnDate},"${t.narration}",${t.amount},${t.utrNumber}`).join('\n');
+      setCsvContent(csv);
+      setFeedback({
+        type: 'info',
+        message: `Loaded 20 real-world B2B benchmark bank transactions (TDS, GST, wire fees, split match & exceptions).`,
       });
     } else {
       setCsvContent(sampleInvoiceCSV);
@@ -237,16 +293,25 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0 ml-2">
-              <button
+            <div className="flex items-center gap-2 shrink-0 ml-2 flex-wrap">
+              {/* <button
+                type="button"
+                onClick={handleLoadBenchmark20}
+                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/40 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                title="Load 20 Real-World Benchmark Cases (Statutory TDS, Wire Fees, Split & Outbox)"
+              >
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                <span>20-Txn Benchmark</span>
+              </button> */}
+              {/* <button
                 type="button"
                 onClick={handleLoadDemoDataset}
                 className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-purple-300 border border-purple-500/30 text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
-                title="Load realistic dataset into editor"
+                title="Load 50 enterprise stress test batch"
               >
                 <Layers className="w-3 h-3" />
-                <span>Load Sample</span>
-              </button>
+                <span>50-Txn Batch</span>
+              </button> */}
               <a
                 href={activeTab === 'BANK_FEED' ? '/api/reconciliation/template-bank-feed' : '/api/reconciliation/template-invoices'}
                 download
@@ -262,10 +327,10 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
           <label className="border-2 border-dashed border-slate-700 hover:border-razor-blue rounded-xl p-4 flex flex-col items-center justify-center gap-2 cursor-pointer bg-slate-950/40 hover:bg-slate-950/80 transition-all">
             <UploadCloud className="w-6 h-6 text-slate-400" />
             <div className="text-center">
-              <span className="text-razor-blue font-semibold">Click to browse file</span> or drag & drop CSV / JSON / Text here
+              <span className="text-razor-blue font-semibold">Click to browse file</span> or drag & drop CSV / JSON / PDF / Image here
             </div>
-            <span className="text-[10px] text-slate-500 font-mono">Supported formats: .csv, .txt, .json</span>
-            <input type="file" accept=".csv,.txt,.json" onChange={handleFileUpload} className="hidden" />
+            <span className="text-[10px] text-slate-400 font-mono">Supported: .csv, .json, .txt, .pdf (Scanned statements), .png, .jpg</span>
+            <input type="file" accept=".csv,.txt,.json,.pdf,.png,.jpg,.jpeg" onChange={handleFileUpload} className="hidden" />
           </label>
 
           {/* CSV Text Area Editor */}
@@ -281,15 +346,15 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
                   title="Use Gemini AI to parse and convert unstructured text into canonical schema"
                 >
                   <Sparkles className={`w-3 h-3 text-purple-400 ${isAIStructuring ? 'animate-spin' : ''}`} />
-                  <span>{isAIStructuring ? 'AI Structuring...' : '✨ AI Structurer (Gemini)'}</span>
+                  <span>{isAIStructuring ? 'AI Structuring...' : 'AI Structurer (Gemini)'}</span>
                 </button>
-                <button
+                {/* <button
                   type="button"
                   onClick={() => setCsvContent(activeTab === 'BANK_FEED' ? sampleBankCSV : sampleInvoiceCSV)}
                   className="text-[11px] text-razor-blue hover:underline cursor-pointer"
                 >
                   Quick Insert
-                </button>
+                </button> */}
               </div>
             </div>
             <textarea

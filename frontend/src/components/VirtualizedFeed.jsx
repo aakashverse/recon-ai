@@ -70,7 +70,13 @@ export function VirtualizedFeed({
             if (!txn) return null;
 
             const isMatched = txn.reconciliationStatus === 'MATCHED';
-            const isException = txn.reconciliationStatus === 'EXCEPTION';
+            const isProposed = txn.reconciliationStatus === 'PROPOSED' || txn.matchedTier === 'PROPOSED';
+            const isOverridden = txn.reconciliationStatus === 'OVERRIDDEN';
+            const isException =
+              txn.reconciliationStatus === 'EXCEPTION' ||
+              txn.reconciliationStatus === 'DISCREPANCY' ||
+              txn.matchedTier === 'OUTBOX_EXCEPTION' ||
+              Boolean(txn.discrepancyDetails && !isMatched && !isProposed);
             const tier = txn.matchedTier;
             const invoice = txn.reconciledInvoiceId;
 
@@ -86,8 +92,14 @@ export function VirtualizedFeed({
                   height: `${virtualRow.size}px`,
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
-                className={`grid grid-cols-12 gap-2 px-4 py-3 items-center text-xs transition-colors hover:bg-razor-cardHover cursor-pointer ${
-                  isException ? 'bg-amber-950/10' : ''
+                className={`grid grid-cols-12 gap-2 px-4 py-2.5 items-center text-xs transition-colors hover:bg-razor-cardHover cursor-pointer ${
+                  isProposed
+                    ? 'bg-purple-950/15 border-l-2 border-l-purple-500'
+                    : isException
+                    ? 'bg-amber-950/10 border-l-2 border-l-amber-500'
+                    : isOverridden
+                    ? 'bg-slate-900/40 border-l-2 border-l-slate-500'
+                    : ''
                 }`}
               >
                 {/* Status / Tier */}
@@ -98,39 +110,52 @@ export function VirtualizedFeed({
                       MATCHED
                     </span>
                   )}
+                  {isProposed && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm animate-pulse">
+                      <ShieldCheck className="w-3 h-3 text-purple-400" />
+                      PROPOSED
+                    </span>
+                  )}
+                  {isOverridden && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700">
+                      OVERRIDDEN
+                    </span>
+                  )}
                   {isException && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
                       <AlertTriangle className="w-3 h-3" />
                       DISCREPANCY
                     </span>
                   )}
-                  {!isMatched && !isException && (
+                  {!isMatched && !isProposed && !isOverridden && !isException && (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">
                       UNPROCESSED
                     </span>
                   )}
 
-                  {/* Tier Badge */}
-                  {tier === 'TIER_1' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-razor-blue/20 text-razor-blue font-mono font-medium">
-                      Tier 1: &lt;2ms Exact
-                    </span>
-                  )}
-                  {tier === 'TIER_2' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 font-mono font-medium">
-                      Tier 2: Rule Cache
-                    </span>
-                  )}
-                  {tier === 'TIER_3' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-razor-purple/20 text-purple-300 font-mono font-medium">
-                      Tier 3: GenAI Pool
-                    </span>
-                  )}
-                  {tier === 'MANUAL' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-mono font-medium">
-                      Manual Approved
-                    </span>
-                  )}
+                  {/* Tier & Trust Level Badge */}
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {tier === 'TIER_1' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-razor-blue/20 text-razor-blue font-mono font-medium border border-razor-blue/30">
+                        Tier 1: Exact
+                      </span>
+                    )}
+                    {tier === 'TIER_2' && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 font-mono font-medium border border-teal-500/30">
+                        Tier 2: Rules
+                      </span>
+                    )}
+                    {(tier === 'TIER_3' || (isProposed && txn.proposalDetails?.proposedTier === 'TIER_3')) && (
+                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-razor-purple/20 text-purple-300 font-mono font-medium border border-razor-purple/30 flex items-center gap-0.5">
+                        {txn.executionMetrics?.ragCacheHit ? '⚡ Tier 3: RAG' : 'Tier 3: GenAI'}
+                      </span>
+                    )}
+                    {txn.trustLevel && (
+                      <span className="text-[9px] px-1 py-0.5 rounded bg-slate-800 text-slate-300 font-mono border border-slate-700">
+                        {txn.trustLevel}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Bank Txn / UTR */}
@@ -143,20 +168,30 @@ export function VirtualizedFeed({
                   </div>
                 </div>
 
-                {/* Narration / Vendor */}
+                {/* Narration / Vendor & Plain-Language Accountability */}
                 <div className="col-span-3">
                   <div className="text-slate-200 font-medium truncate" title={txn.narration}>
                     {txn.narration}
                   </div>
                   <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
-                    {invoice ? (
+                    {invoice || txn.proposalDetails?.proposedInvoiceNumber ? (
                       <span className="text-razor-blue font-medium flex items-center gap-0.5">
                         <ArrowRight className="w-2.5 h-2.5" />
-                        {invoice.invoiceNumber || 'INV'} • {invoice.customerName || 'Vendor'}
+                        {invoice?.invoiceNumber || txn.proposalDetails?.proposedInvoiceNumber} • {invoice?.customerName || 'Vendor'}
+                      </span>
+                    ) : isException && txn.discrepancyDetails?.reason ? (
+                      <span className="text-amber-400/90 font-medium truncate flex items-center gap-1" title={txn.discrepancyDetails.reason}>
+                        <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+                        {txn.discrepancyDetails.reason}
                       </span>
                     ) : (
                       <span className="text-slate-500 italic">No mapped invoice candidate</span>
                     )}
+                  </div>
+                  {/* Plain-Language Primary Accountability Statement */}
+                  <div className="text-[10px] text-slate-300/80 italic truncate mt-0.5 flex items-center gap-1" title={txn.accountabilityStatement}>
+                    <ShieldCheck className="w-2.5 h-2.5 text-razor-blue shrink-0" />
+                    <span>{txn.accountabilityStatement || (isMatched ? 'Verified — exact match, no inference involved.' : isProposed ? 'Proposed by GenAI — awaiting accountant sign-off.' : 'Awaiting accountant review.')}</span>
                   </div>
                 </div>
 
@@ -170,15 +205,22 @@ export function VirtualizedFeed({
                       -₹{txn.deductionsApplied.totalDeductions.toLocaleString('en-IN')}{' '}
                       ({txn.deductionsApplied.tdsSection || 'TDS'})
                     </div>
+                  ) : isException && txn.discrepancyDetails?.difference ? (
+                    <div className="text-[10px] font-mono text-rose-400 font-semibold">
+                      Δ ₹{Math.abs(txn.discrepancyDetails.difference).toLocaleString('en-IN')} (Diff)
+                    </div>
                   ) : (
                     <div className="text-[10px] font-mono text-slate-500">Gross Paid (0 TDS)</div>
                   )}
                 </div>
 
-                {/* Confidence & Circuit */}
+                {/* Confidence & Circuit with Plain-Language Label */}
                 <div className="col-span-2 flex flex-col items-center">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-16 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                  <div className="text-[10px] font-medium text-slate-300 truncate max-w-[130px] text-center" title={txn.confidenceLabel}>
+                    {txn.confidenceLabel || (tier === 'TIER_1' ? 'Verified (Exact)' : 'AI-Assisted — High')}
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <div className="w-14 bg-slate-800 rounded-full h-1.5 overflow-hidden">
                       <div
                         className={`h-full rounded-full ${
                           (txn.confidenceScore || 1) >= 0.8
@@ -190,7 +232,7 @@ export function VirtualizedFeed({
                         style={{ width: `${Math.min(100, Math.round((txn.confidenceScore || 1) * 100))}%` }}
                       ></div>
                     </div>
-                    <span className="text-[10px] font-mono font-bold text-slate-300">
+                    <span className="text-[9px] font-mono text-slate-400">
                       {Math.round((txn.confidenceScore || 1) * 100)}%
                     </span>
                   </div>
@@ -200,7 +242,65 @@ export function VirtualizedFeed({
                 </div>
 
                 {/* Action */}
-                <div className="col-span-1 text-right flex items-center justify-end gap-1.5 relative z-20" onClick={(e) => e.stopPropagation()}>
+                <div className="col-span-1 text-right flex items-center justify-end gap-1 relative z-20" onClick={(e) => e.stopPropagation()}>
+                  {isProposed && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          try {
+                            const res = await fetch('http://localhost:5000/api/reconciliation/confirm-proposal', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ bankTxnId: txn.bankTxnId, accountantNotes: '1-Click feed confirmation' }),
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                              txn.reconciliationStatus = 'MATCHED';
+                              txn.accountabilityStatement = 'Accountant confirmed — pattern promoted in trust hierarchy.';
+                            }
+                          } catch (err) {
+                            console.error('Confirm error:', err);
+                          }
+                        }}
+                        className="p-1 rounded bg-emerald-600/30 hover:bg-emerald-600/50 text-emerald-300 border border-emerald-500/40 transition-all cursor-pointer"
+                        title="Confirm & Auto-Post Proposal to General Ledger"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          const reason = prompt('Enter override reason / note for audit trail:');
+                          if (reason === null) return;
+                          try {
+                            const res = await fetch('http://localhost:5000/api/reconciliation/override-match', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ bankTxnId: txn.bankTxnId, reason }),
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                              txn.reconciliationStatus = 'OVERRIDDEN';
+                              txn.accountabilityStatement = 'Accountant override logged — rule trust downgraded in ledger.';
+                            }
+                          } catch (err) {
+                            console.error('Override error:', err);
+                          }
+                        }}
+                        className="p-1 rounded bg-rose-600/30 hover:bg-rose-600/50 text-rose-300 border border-rose-500/40 transition-all cursor-pointer"
+                        title="Override / Downgrade Trust Level"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
+
                   <button
                     type="button"
                     onClick={(e) => {

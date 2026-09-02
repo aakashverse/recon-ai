@@ -15,12 +15,30 @@ export async function connectDB() {
   // Try primary URI
   try {
     const conn = await mongoose.connect(PRIMARY_URI, {
-      serverSelectionTimeoutMS: 4000,
+      serverSelectionTimeoutMS: 10000,
+      connectTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 20,
       autoIndex: true,
     });
 
     isConnected = true;
     console.log(`[Database] Connected to MongoDB at ${conn.connection.host}:${conn.connection.port}/${conn.connection.name}`);
+
+    // Register resilient connection lifecycle event listeners
+    mongoose.connection.on('error', (err) => {
+      console.error('[Database Runtime Error]:', err.message);
+    });
+
+    mongoose.connection.on('disconnected', () => {
+      isConnected = false;
+      console.warn('[Database Warning]: Disconnected from MongoDB. Awaiting auto-reconnection...');
+    });
+
+    mongoose.connection.on('reconnected', () => {
+      isConnected = true;
+      console.log('[Database Info]: Reconnected to MongoDB successfully.');
+    });
 
     // Check if replica set
     try {
@@ -60,16 +78,16 @@ export async function connectDB() {
 export async function withTransaction(operationCallback) {
   if (supportsTransactions) {
     const session = await mongoose.startSession();
-    session.startTransaction();
     try {
-      const result = await operationCallback(session);
-      await session.commitTransaction();
+      let result;
+      await session.withTransaction(async () => {
+        result = await operationCallback(session);
+      });
       return result;
     } catch (err) {
-      await session.abortTransaction();
       throw err;
     } finally {
-      session.endSession();
+      await session.endSession();
     }
   } else {
     // Standalone fallback: execute directly without session wrapper

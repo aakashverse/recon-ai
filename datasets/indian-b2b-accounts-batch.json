@@ -1,0 +1,424 @@
+[
+  {
+    "bankTxnId": "IND-01",
+    "txnDate": "2026-08-01",
+    "utrNumber": "AXISN24230192837",
+    "amount": 100000,
+    "narration": "NEFT/AXISN24230192837/INV-2024-1001/TECHCORP/FULL-SETTLEMENT/MUMBAI-BR",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_1",
+    "targetInvoices": [
+      "INV-2024-1001"
+    ],
+    "expectedTdsSection": "NONE",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "100000 - 0 = 100000"
+  },
+  {
+    "bankTxnId": "IND-02",
+    "txnDate": "2026-08-02",
+    "utrNumber": "HDFCR5202608151234",
+    "amount": 117600,
+    "narration": "RTGS/HDFCR5202608151234/BLUESKY-LOGISTICS/INV-2024-1005/TDS-2PCT-194C/NET-SETTLE",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-1005"
+    ],
+    "expectedTdsSection": "194C",
+    "expectedTdsRate": 2,
+    "expectedTdsAmount": 2400,
+    "expectedTotalDeductions": 2400,
+    "equation": "120000 - 2400 = 117600"
+  },
+  {
+    "bankTxnId": "IND-03",
+    "txnDate": "2026-08-03",
+    "utrNumber": "UTIB556677889",
+    "amount": 85500,
+    "narration": "NEFT//UTIB556677889//KORE-NETWORKS//INV-2024-1008//TDS-10PCT-194J//EXP-RECON",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-1008"
+    ],
+    "expectedTdsSection": "194J",
+    "expectedTdsRate": 10,
+    "expectedTdsAmount": 9500,
+    "expectedTotalDeductions": 9500,
+    "equation": "95000 - 9500 = 85500"
+  },
+  {
+    "bankTxnId": "IND-04",
+    "txnDate": "2026-08-03",
+    "utrNumber": "BARB445566778",
+    "amount": 304000,
+    "narration": "RTGS/BARB445566778/NOVA-INFOTECH/INV-2024-1007/TDS-5PCT-194H/COMMISSION-RETAINER",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-1007"
+    ],
+    "expectedTdsSection": "194H",
+    "expectedTdsRate": 5,
+    "expectedTdsAmount": 16000,
+    "expectedTotalDeductions": 16000,
+    "equation": "320000 - 16000 = 304000"
+  },
+  {
+    "bankTxnId": "IND-05",
+    "txnDate": "2026-08-04",
+    "utrNumber": "KKBK998811223",
+    "amount": 499500,
+    "narration": "RTGS/KKBK998811223/TITAN-MANUFACTURING/INV-2024-5001/TDS-194Q-0.1PCT/RAW-MATERIAL",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-5001"
+    ],
+    "expectedTdsSection": "194Q",
+    "expectedTdsRate": 0.1,
+    "expectedTdsAmount": 500,
+    "expectedTotalDeductions": 500,
+    "equation": "500000 - 500 = 499500"
+  },
+  {
+    "bankTxnId": "IND-06",
+    "txnDate": "2026-08-04",
+    "utrNumber": "YESB112244668",
+    "amount": 160000,
+    "narration": "NEFT-HIGHRISK-INV-2024-5003-SEC206AB-PENALTY-20PCT-DED",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-5003"
+    ],
+    "expectedTdsSection": "206AB",
+    "expectedTdsRate": 20,
+    "expectedTdsAmount": 40000,
+    "expectedTotalDeductions": 40000,
+    "equation": "200000 - 40000 = 160000"
+  },
+  {
+    "bankTxnId": "IND-07",
+    "txnDate": "2026-08-05",
+    "utrNumber": "YESBN33445566",
+    "amount": 183050.85,
+    "narration": "YESB/RTGS/INFOSYS/INV-2024-2001/CBDT-CIRCULAR-23-TDS-ON-BASE-ONLY-10PCT",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2001"
+    ],
+    "expectedTdsSection": "194J_BASE_CBDT_23",
+    "expectedTdsRate": 10,
+    "expectedTdsAmount": 16949.15,
+    "expectedTotalDeductions": 16949.15,
+    "equation": "200000 - 16949.15 = 183050.85"
+  },
+  {
+    "bankTxnId": "IND-08",
+    "txnDate": "2026-08-05",
+    "utrNumber": "AXISP99001122",
+    "amount": 109900,
+    "narration": "PG-SETTL/RAZORPAY/PAYTM/INV-2024-2014/NET-PAYOUT-LESS-WIRE-FEE-100",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2014"
+    ],
+    "expectedTdsSection": "WIRE_FEE",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 100,
+    "expectedTotalDeductions": 100,
+    "equation": "110000 - 100 = 109900"
+  },
+  {
+    "bankTxnId": "IND-09",
+    "txnDate": "2026-08-06",
+    "utrNumber": "INDBN77889900",
+    "amount": 122450,
+    "narration": "INDB/NEFT/SWIGGY/INV-2024-2008/TDS-2PCT-PLUS-WIRE-CHG-50-COMBO",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2008"
+    ],
+    "expectedTdsSection": "194C_PLUS_FEE",
+    "expectedTdsRate": 2,
+    "expectedTdsAmount": 2500,
+    "expectedTotalDeductions": 2550,
+    "equation": "125000 - 2550 = 122450"
+  },
+  {
+    "bankTxnId": "IND-10",
+    "txnDate": "2026-08-06",
+    "utrNumber": "BARBN44556677",
+    "amount": 225000,
+    "narration": "BARB-CMS-CONSOLIDATED-INV-2024-1006-AND-INV-2024-1009-SPLIT-PMT",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-1006",
+      "INV-2024-1009"
+    ],
+    "expectedTdsSection": "NONE",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "(180000 + 45000) - 0 = 225000"
+  },
+  {
+    "bankTxnId": "IND-11",
+    "txnDate": "2026-08-07",
+    "utrNumber": "CITIN11002299",
+    "amount": 441000,
+    "narration": "CITI-CORP/TATA-CONSULTANCY/INV-2024-2004/RULE-HISTORICAL-CONTRACT-2PCT",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2004"
+    ],
+    "expectedTdsSection": "194C",
+    "expectedTdsRate": 2,
+    "expectedTdsAmount": 9000,
+    "expectedTotalDeductions": 9000,
+    "equation": "450000 - 9000 = 441000"
+  },
+  {
+    "bankTxnId": "IND-12",
+    "txnDate": "2026-08-07",
+    "utrNumber": "HSBCN99221100",
+    "amount": 274400,
+    "narration": "HSBC/NEFT/WIPRO/INV-2024-2006/RETAINER-MONTHLY-SETTL-2PCT",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2006"
+    ],
+    "expectedTdsSection": "194C",
+    "expectedTdsRate": 2,
+    "expectedTdsAmount": 5600,
+    "expectedTotalDeductions": 5600,
+    "equation": "280000 - 5600 = 274400"
+  },
+  {
+    "bankTxnId": "IND-13",
+    "txnDate": "2026-08-08",
+    "utrNumber": "UPI623910928374",
+    "amount": 90000,
+    "narration": "UPI/623910928374/CR/INV-2024-2009/ZOMATO@ICICI/FAST-SETTLE",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_1",
+    "targetInvoices": [
+      "INV-2024-2009"
+    ],
+    "expectedTdsSection": "NONE",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "90000 - 0 = 90000"
+  },
+  {
+    "bankTxnId": "IND-14",
+    "txnDate": "2026-08-08",
+    "utrNumber": "CITIN994433221",
+    "amount": 144000,
+    "narration": "FT-INDB-OCR-INVOICE-1NV-2O24-3OO1-HEXAWAVE-SERVICES-DEPT",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_3",
+    "targetInvoices": [
+      "INV-2024-3001"
+    ],
+    "expectedTdsSection": "194J",
+    "expectedTdsRate": 10,
+    "expectedTdsAmount": 16000,
+    "expectedTotalDeductions": 16000,
+    "equation": "160000 - 16000 = 144000"
+  },
+  {
+    "bankTxnId": "IND-15",
+    "txnDate": "2026-08-09",
+    "utrNumber": "CITIN994433222",
+    "amount": 88200,
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO2-DELTA-REGIONAL-OFFICE",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_3",
+    "targetInvoices": [
+      "INV-2024-3002"
+    ],
+    "expectedTdsSection": "194C",
+    "expectedTdsRate": 2,
+    "expectedTdsAmount": 1800,
+    "expectedTotalDeductions": 1800,
+    "equation": "90000 - 1800 = 88200"
+  },
+  {
+    "bankTxnId": "IND-16",
+    "txnDate": "2026-08-09",
+    "utrNumber": "CITIN994433223",
+    "amount": 189000,
+    "narration": "FT-INDB-OCR-INVOICE-2O24-3OO4-OMNISECURE-CENTRAL-PAYMENT",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_3",
+    "targetInvoices": [
+      "INV-2024-3004"
+    ],
+    "expectedTdsSection": "194J",
+    "expectedTdsRate": 10,
+    "expectedTdsAmount": 21000,
+    "expectedTotalDeductions": 21000,
+    "equation": "210000 - 21000 = 189000"
+  },
+  {
+    "bankTxnId": "IND-17",
+    "txnDate": "2026-08-10",
+    "utrNumber": "KOTAK99881122",
+    "amount": 76000,
+    "narration": "SWIGGY BUNDL TECH DELIVERY LOGISTICS SETTLEMENT AUGUST INV-2024-2007",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2007"
+    ],
+    "expectedTdsSection": "194H",
+    "expectedTdsRate": 5,
+    "expectedTdsAmount": 4000,
+    "expectedTotalDeductions": 4000,
+    "equation": "80000 - 4000 = 76000"
+  },
+  {
+    "bankTxnId": "IND-18",
+    "txnDate": "2026-08-10",
+    "utrNumber": "AMZN881122334",
+    "amount": 173250,
+    "narration": "AMZN-MARKETPLACE-SETTLEMENT-INV-2024-2015-LESS-1PCT-TCS-SEC52",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2015"
+    ],
+    "expectedTdsSection": "TCS_52",
+    "expectedTdsRate": 1,
+    "expectedTdsAmount": 1750,
+    "expectedTotalDeductions": 1750,
+    "equation": "175000 - 1750 = 173250"
+  },
+  {
+    "bankTxnId": "IND-19",
+    "txnDate": "2026-08-11",
+    "utrNumber": "SBIN009988771",
+    "amount": 294000,
+    "narration": "ONGC-FIN-CORP/INV-2024-2003/TDS-2PCT-194C-CONTRACT/DEHRADUN",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2003"
+    ],
+    "expectedTdsSection": "194C",
+    "expectedTdsRate": 2,
+    "expectedTdsAmount": 6000,
+    "expectedTotalDeductions": 6000,
+    "equation": "300000 - 6000 = 294000"
+  },
+  {
+    "bankTxnId": "IND-20",
+    "txnDate": "2026-08-11",
+    "utrNumber": "ICICIN1188223",
+    "amount": 360000,
+    "narration": "RELIANCE-RETAIL-CORP-INV-2024-2010-MONTHLY-TDS-194J-10PCT",
+    "expectedStatus": "MATCHED",
+    "expectedTier": "TIER_2",
+    "targetInvoices": [
+      "INV-2024-2010"
+    ],
+    "expectedTdsSection": "194J",
+    "expectedTdsRate": 10,
+    "expectedTdsAmount": 40000,
+    "expectedTotalDeductions": 40000,
+    "equation": "400000 - 40000 = 360000"
+  },
+  {
+    "bankTxnId": "IND-21",
+    "txnDate": "2026-08-12",
+    "utrNumber": "AXISN991100223",
+    "amount": 82000,
+    "narration": "NEFT-INV-2024-4001-DISPUTED-CORP-SHORTAGE",
+    "expectedStatus": "EXCEPTION",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "targetInvoices": [
+      "INV-2024-4001"
+    ],
+    "expectedTdsSection": "DISPUTED_SHORTAGE",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "100000 - 0 = 100000 != 82000 (Δ = -18000)"
+  },
+  {
+    "bankTxnId": "IND-22",
+    "txnDate": "2026-08-12",
+    "utrNumber": "HDFCN992211883",
+    "amount": 215000,
+    "narration": "NEFT-INV-2024-4002-FAULTY-DEDUCTIONS-EXCESS",
+    "expectedStatus": "EXCEPTION",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "targetInvoices": [
+      "INV-2024-4002"
+    ],
+    "expectedTdsSection": "FAULTY_EXCESS",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "200000 - 0 = 200000 != 215000 (Δ = +15000)"
+  },
+  {
+    "bankTxnId": "IND-23",
+    "txnDate": "2026-08-13",
+    "utrNumber": "KKBK776655441",
+    "amount": 412000,
+    "narration": "NEFT-UNREGISTERED-OVERSEAS-SUPPLIER-INV-9999-REMITTANCE",
+    "expectedStatus": "EXCEPTION",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "targetInvoices": [],
+    "expectedTdsSection": "UNREGISTERED",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "No open invoice found in ERP"
+  },
+  {
+    "bankTxnId": "IND-24",
+    "txnDate": "2026-08-13",
+    "utrNumber": "UPI998877665544",
+    "amount": 33333,
+    "narration": "UPI-TRANSFER-UNKNOWN-REF-NO-MATCH-99238",
+    "expectedStatus": "EXCEPTION",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "targetInvoices": [],
+    "expectedTdsSection": "UNKNOWN",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "Unidentified counterparty credit"
+  },
+  {
+    "bankTxnId": "IND-25",
+    "txnDate": "2026-08-13",
+    "utrNumber": "AXISN24230192837",
+    "amount": 100000,
+    "narration": "NEFT/AXISN24230192837/INV-2024-1001/TECHCORP/FULL-SETTLEMENT/MUMBAI-BR",
+    "expectedStatus": "EXCEPTION",
+    "expectedTier": "OUTBOX_EXCEPTION",
+    "targetInvoices": [
+      "INV-2024-1001"
+    ],
+    "expectedTdsSection": "IDEMPOTENT_REPLAY",
+    "expectedTdsRate": 0,
+    "expectedTdsAmount": 0,
+    "expectedTotalDeductions": 0,
+    "equation": "Duplicate SHA-256 idempotency hash rejected (0ms guard)"
+  }
+]
