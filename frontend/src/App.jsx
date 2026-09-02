@@ -28,7 +28,7 @@ export default function App() {
   } = useReconStream();
 
   // Local React State for 0ms In-Memory Filtering
-  const [minConfidence, setMinConfidence] = useState(0.5);
+  const [minConfidence, setMinConfidence] = useState(0);
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -41,10 +41,37 @@ export default function App() {
   const [isControllerOpen, setIsControllerOpen] = useState(false);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
 
+  // Real-time tab counts computation across lifecycle buckets
+  const counts = useMemo(() => {
+    let all = 0;
+    let matched = 0;
+    let proposed = 0;
+    let tier3 = 0;
+    let exception = 0;
+
+    for (const t of transactions) {
+      all++;
+      const isM = t.reconciliationStatus === 'MATCHED' || t.reconciliationStatus === 'OVERRIDDEN';
+      const isP = t.reconciliationStatus === 'PROPOSED' || t.matchedTier === 'PROPOSED';
+      const isE =
+        t.reconciliationStatus === 'EXCEPTION' ||
+        t.reconciliationStatus === 'DISCREPANCY' ||
+        t.matchedTier === 'OUTBOX_EXCEPTION' ||
+        Boolean(t.discrepancyDetails && !isM && !isP);
+
+      if (isM) matched++;
+      if (isP) proposed++;
+      if (isM && t.matchedTier === 'TIER_3') tier3++;
+      if (isE) exception++;
+    }
+
+    return { all, matched, proposed, tier3, exception };
+  }, [transactions]);
+
   // 0ms In-Memory Instant Filter Pipeline
   const filteredTransactions = useMemo(() => {
     return transactions.filter((t) => {
-      const isMatched = t.reconciliationStatus === 'MATCHED';
+      const isMatched = t.reconciliationStatus === 'MATCHED' || t.reconciliationStatus === 'OVERRIDDEN';
       const isProposed = t.reconciliationStatus === 'PROPOSED' || t.matchedTier === 'PROPOSED';
       const isException =
         t.reconciliationStatus === 'EXCEPTION' ||
@@ -61,23 +88,35 @@ export default function App() {
       if (statusFilter === 'TIER_3' && (t.matchedTier !== 'TIER_3' || !isMatched)) return false;
 
       // 2. Confidence threshold
-      // When explicitly filtering for EXCEPTION, never drop discrepancies based on confidence
-      if (statusFilter !== 'EXCEPTION') {
-        const conf = t.confidenceScore !== undefined ? t.confidenceScore : 1.0;
-        // For matched records, respect minConfidence; for exceptions in ALL tab, keep them unless slider is set to 95%+
-        if (isMatched && conf < minConfidence) return false;
+      // When explicitly filtering for EXCEPTION, preserve discrepancies so they're never hidden
+      if (minConfidence > 0 && statusFilter !== 'EXCEPTION') {
+        const conf = t.confidenceScore !== undefined && t.confidenceScore !== null
+          ? Number(t.confidenceScore)
+          : (isMatched ? 1.0 : (isProposed ? 0.85 : 0.2));
+        if (conf < minConfidence) return false;
       }
 
       // 3. Search query
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
+        const q = searchQuery.toLowerCase().trim();
         const narration = (t.narration || '').toLowerCase();
         const utr = (t.utrNumber || '').toLowerCase();
         const txnId = (t.bankTxnId || '').toLowerCase();
-        const invNum = (t.reconciledInvoiceId?.invoiceNumber || '').toLowerCase();
-        const vendor = (t.reconciledInvoiceId?.customerName || '').toLowerCase();
+        const invNum = (
+          typeof t.reconciledInvoiceId === 'object' && t.reconciledInvoiceId !== null
+            ? t.reconciledInvoiceId.invoiceNumber || ''
+            : t.invoiceNumber || ''
+        ).toLowerCase();
+        const vendor = (
+          typeof t.reconciledInvoiceId === 'object' && t.reconciledInvoiceId !== null
+            ? t.reconciledInvoiceId.customerName || ''
+            : t.customerName || ''
+        ).toLowerCase();
         const splitInvs = (t.splitInvoices || []).map((s) => s.invoiceNumber || '').join(' ').toLowerCase();
         const discReason = (t.discrepancyDetails?.reason || '').toLowerCase();
+        const amtStr = t.amount !== undefined && t.amount !== null ? String(t.amount) : '';
+        const tier = (t.matchedTier || '').toLowerCase();
+        const status = (t.reconciliationStatus || '').toLowerCase();
 
         return (
           narration.includes(q) ||
@@ -86,7 +125,10 @@ export default function App() {
           invNum.includes(q) ||
           vendor.includes(q) ||
           splitInvs.includes(q) ||
-          discReason.includes(q)
+          discReason.includes(q) ||
+          amtStr.includes(q) ||
+          tier.includes(q) ||
+          status.includes(q)
         );
       }
 
@@ -128,7 +170,11 @@ export default function App() {
         <MetricsOverview stats={stats} batchProgress={batchProgress} />
 
         {/* Tier Distribution Visualizer */}
-        <TierDistributionChart stats={stats} />
+        <TierDistributionChart
+          stats={stats}
+          statusFilter={statusFilter}
+          onSelectStatus={setStatusFilter}
+        />
 
         {/* 0ms In-Memory Instant Risk Slider & Filter Controls */}
         <RiskSlider
@@ -140,6 +186,7 @@ export default function App() {
           onSearchChange={setSearchQuery}
           filteredCount={filteredTransactions.length}
           totalCount={transactions.length}
+          counts={counts}
         />
 
         {/* High-Performance 60fps Virtualized Feed */}
