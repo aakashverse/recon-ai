@@ -1,4 +1,4 @@
-﻿name: Razorpay Recon AI — CI Verification Suite
+name: Razorpay Recon AI — CI Verification Suite
 
 on:
   push:
@@ -26,6 +26,10 @@ jobs:
         with:
           node-version: 20.x
           cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
 
       - name: Install Root & Workspace Dependencies
         run: |
