@@ -1,15 +1,12 @@
 import { Invoice } from '../models/Invoice.js';
 import { getGeminiModel, getGenAI, getActiveModelName, isAIAvailable } from '../config/ai.js';
 import { retrieveRelevantTaxRules, retrieveSemanticTaxRules, TAX_RULE_KNOWLEDGE_BASE } from '../config/taxRules.js';
+import { vectorStoreService } from './vectorStoreService.js';
 import { z } from 'zod';
 import pLimit from 'p-limit';
-import levenshtein from 'fast-levenshtein';
 
 // Bounded Concurrency: Max 5 concurrent GenAI workers to protect rate limits & memory
 const limit = pLimit(5);
-
-// In-Memory RAG-Style Cache for recurring fuzzy narration patterns (<2ms resolution, $0 cost)
-const ragResolutionCache = new Map();
 
 /**
  * Step 1 & Step 4: Strict Zod Schema for Structured Output Validation
@@ -81,73 +78,24 @@ export function computeNarrationFingerprint(narration) {
 }
 
 /**
- * Checks RAG cache for recurring narration patterns with dynamic invoice token binding
+ * Checks Semantic Vector RAG Cache for recurring narration patterns with dynamic invoice token binding
  */
-function checkRAGCache(narration) {
-  const currentFp = computeNarrationFingerprint(narration);
-  if (!currentFp || currentFp.length < 8) return null;
-
-  // Extract the invoice token from the CURRENT incoming narration
-  const normalizedOcr = (narration || '').toUpperCase()
-    .replace(/\b1NV\b/g, 'INV')
-    .replace(/2O2/g, '202')
-    .replace(/3OO/g, '300')
-    .replace(/4OO/g, '400')
-    .replace(/5OO/g, '500')
-    .replace(/IOO/g, '100')
-    .replace(/([0-9])O([0-9])/g, '$10$2')
-    .replace(/([0-9])OO([0-9])/g, '$100$2');
-
-  const invMatch = normalizedOcr.match(/\b(?:INV|INVOICE)[-_/ ]*([0-9]{4}[-_/]?[0-9]+)\b/i);
-  const currentInvoiceId = invMatch ? `INV-${invMatch[1].replace(/[/_ ]/g, '-')}` : null;
-
-  for (const [, entry] of ragResolutionCache.entries()) {
-    const maxLen = Math.max(currentFp.length, entry.fingerprint.length);
-    if (maxLen === 0) continue;
-
-    const distance = levenshtein.get(currentFp, entry.fingerprint);
-    const similarity = 1 - distance / maxLen;
-
-    // Strict 95% structural similarity threshold for RAG reuse
-    if (similarity >= 0.95) {
-      // Dynamic Invoice Binding: If current narration has its own invoice number, bind to it!
-      const resolvedInvoiceId = currentInvoiceId || entry.resolution.matched_invoice_id;
-      return {
-        ...entry.resolution,
-        matched_invoice_id: resolvedInvoiceId,
-        ragCacheHit: true,
-        similarityScore: similarity,
-      };
-    }
-  }
-
-  return null;
+export async function checkRAGCache(narration) {
+  return await vectorStoreService.searchNarrationCache(narration, 0.90);
 }
 
 /**
  * Clears the in-memory RAG template cache
  */
 export function clearRAGCache() {
-  ragResolutionCache.clear();
+  vectorStoreService.clearCache();
 }
 
 /**
- * Stores verified resolution in RAG cache
+ * Stores verified resolution in Semantic Vector RAG Cache
  */
-function storeRAGCache(narration, resolution) {
-  const fp = computeNarrationFingerprint(narration);
-  if (!fp || fp.length < 8) return;
-
-  if (ragResolutionCache.size > 2000) {
-    const firstKey = ragResolutionCache.keys().next().value;
-    ragResolutionCache.delete(firstKey);
-  }
-
-  ragResolutionCache.set(fp, {
-    fingerprint: fp,
-    resolution,
-    timestamp: Date.now(),
-  });
+export function storeRAGCache(narration, resolution) {
+  vectorStoreService.storeNarrationCache(narration, resolution).catch(() => {});
 }
 
 /**
@@ -320,8 +268,8 @@ export async function executeGenAIWorker(bankTxn, options = {}, context = {}) {
   const narration = bankTxn.narration || '';
   const bankAmount = Number(bankTxn.amount);
 
-  // 1. RAG Cache Check (<2ms)
-  const cachedResolution = checkRAGCache(narration);
+  // 1. Semantic Vector RAG Cache Check (<2ms)
+  const cachedResolution = await checkRAGCache(narration);
   if (cachedResolution) {
     return {
       ...cachedResolution,
