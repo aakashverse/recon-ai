@@ -140,6 +140,34 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
     }
   };
 
+  const handleOneClickKaggleRun = async () => {
+    setIsProcessing(true);
+    setFeedback({ type: 'info', message: 'Loading 100 Kaggle ERP Invoices & Bank transactions into engine...' });
+    try {
+      const res = await fetch('/api/reconciliation/load-kaggle-benchmark', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mockLlm: true }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({
+          type: 'success',
+          message: '🚀 Kaggle Benchmark initialized! Reconciling 100 transactions live.',
+        });
+        onFeedImported?.();
+        onInvoicesImported?.();
+        setTimeout(() => onClose(), 1000);
+      } else {
+        setFeedback({ type: 'error', message: data.error || 'Failed to start Kaggle benchmark.' });
+      }
+    } catch (err) {
+      setFeedback({ type: 'error', message: `Benchmark Error: ${err.message}` });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleAIStructure = async () => {
     if (!csvContent.trim()) {
       setFeedback({
@@ -345,6 +373,16 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
               >
                 <Sparkles className="w-3 h-3 text-cyan-400" />
                 <span>Kaggle Benchmark (100)</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOneClickKaggleRun}
+                disabled={isProcessing}
+                className="px-2.5 py-1 rounded bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all shadow-md shadow-cyan-600/20 disabled:opacity-50"
+                title="1-Click: Auto-seed all 100 Kaggle invoices as UNPAID and reconcile bank feed live!"
+              >
+                <Play className="w-3 h-3 fill-current" />
+                <span>Auto-Reconcile Kaggle</span>
               </button>
               <a
                 href={activeTab === 'BANK_FEED' ? '/api/reconciliation/template-bank-feed' : '/api/reconciliation/template-invoices'}

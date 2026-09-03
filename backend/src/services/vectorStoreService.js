@@ -1,4 +1,4 @@
-﻿import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 import { getEmbeddingModel, isAIAvailable } from '../config/ai.js';
 import { TAX_RULE_KNOWLEDGE_BASE } from '../config/taxRules.js';
 import { TaxRuleVector } from '../models/TaxRuleVector.js';
@@ -317,8 +317,8 @@ class VectorStoreService {
       .replace(/([0-9])O([0-9])/g, '$10$2')
       .replace(/([0-9])OO([0-9])/g, '$100$2');
 
-    const invMatch = normalizedOcr.match(/\b(?:INV|INVOICE)[-_/ ]*([0-9]{4}[-_/]?[0-9]+)\b/i);
-    const currentInvoiceId = invMatch ? `INV-${invMatch[1].replace(/[/_ ]/g, '-')}` : null;
+    const invMatch = normalizedOcr.match(/\b(?:INV|INVOICE)[-_/ ]*([A-Z0-9]+[-_/]?[0-9]+)\b/i);
+    const currentInvoiceId = invMatch ? (invMatch[1].toUpperCase().startsWith('INV-') ? invMatch[1].toUpperCase() : `INV-${invMatch[1].replace(/[/_ ]/g, '-').toUpperCase()}`) : null;
 
     const { vector: queryVector, norm: queryNorm } = await this.embedText(narrationText);
 

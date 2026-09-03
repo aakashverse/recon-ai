@@ -27,10 +27,11 @@ const COMMON_BANK_CHARGES = [15, 25, 50, 100, 118, 150, 177, 200, 236, 250, 295,
 export async function matchTier2(bankTxn, context = {}) {
   const startTime = performance.now();
   const rawNarration = (bankTxn.narration || '').trim();
+  const normalizedNarration = rawNarration.replace(/\b1NV\b/gi, 'INV').replace(/\b1NVOICE\b/gi, 'INVOICE');
   const bankAmount = Number(bankTxn.amount);
 
   // 1. Identify potential invoice or vendor tokens from narration
-  const invoiceMatch = rawNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || rawNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
+  const invoiceMatch = normalizedNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || normalizedNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
   let explicitInvoice = null;
 
   if (invoiceMatch) {

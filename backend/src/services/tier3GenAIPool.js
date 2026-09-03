@@ -485,14 +485,26 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
         .replace(/([0-9])O([0-9])/g, '$10$2')
         .replace(/([0-9])OO([0-9])/g, '$100$2');
 
-      const narrationInvMatch = normalizedNarration.match(/\b(?:INV|INVOICE)[-_/ ]*([0-9]{4}[-_/]?[0-9]+)\b/i);
+      const narrationInvMatch = normalizedNarration.match(/\b(?:INV|INVOICE)[-_/ ]*([A-Z0-9]+[-_/]?[0-9]+)\b/i) || normalizedNarration.match(/\b([A-Z0-9]+[-_][0-9]{4})\b/i);
       if (narrationInvMatch) {
+        const rawToken = narrationInvMatch[1].replace(/[/_ ]/g, '-');
+        const candidateToken = rawToken.toUpperCase().startsWith('INV-') ? rawToken.toUpperCase() : `INV-${rawToken.toUpperCase()}`;
         const cleanInvDigits = narrationInvMatch[1].replace(/[^0-9]/g, '');
+
         if (context.allInvoices) {
-          candidateInvoices = context.allInvoices.filter((i) => i.status !== 'PAID' && i.invoiceNumber.replace(/[^0-9]/g, '').includes(cleanInvDigits));
+          candidateInvoices = context.allInvoices.filter((i) =>
+            i.status !== 'PAID' && (
+              i.invoiceNumber.toUpperCase() === candidateToken ||
+              i.invoiceNumber.toUpperCase().includes(rawToken.toUpperCase()) ||
+              (cleanInvDigits && cleanInvDigits.length >= 4 && i.invoiceNumber.replace(/[^0-9]/g, '').includes(cleanInvDigits))
+            )
+          );
         } else {
           candidateInvoices = await Invoice.find({
-            invoiceNumber: new RegExp(cleanInvDigits.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+            $or: [
+              { invoiceNumber: { $regex: new RegExp(rawToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } },
+              { invoiceNumber: candidateToken },
+            ],
             status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
           }).limit(5).lean();
         }

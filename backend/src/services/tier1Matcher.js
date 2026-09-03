@@ -1,4 +1,4 @@
-﻿import { Invoice } from '../models/Invoice.js';
+import { Invoice } from '../models/Invoice.js';
 
 /**
  * Tier 1: Deterministic Exact Matcher (<2ms)
@@ -8,10 +8,11 @@
 export async function matchTier1(bankTxn, context = {}) {
   const startTime = performance.now();
   const rawNarration = (bankTxn.narration || '').trim();
+  const normalizedNarration = rawNarration.replace(/\b1NV\b/gi, 'INV').replace(/\b1NVOICE\b/gi, 'INVOICE');
   const bankAmount = Number(bankTxn.amount);
 
-  // 1. Check invoice number pattern in narration (e.g., INV-2024-1001, INV-1001, INV/2026/01)
-  const invoiceMatch = rawNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || rawNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
+  // 1. Check invoice number pattern in narration (e.g., INV-2024-1001, INV-1001, INV/2026/01, INV-KAG-0001)
+  const invoiceMatch = normalizedNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || normalizedNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
   let candidateInvoice = null;
 
   if (invoiceMatch) {
