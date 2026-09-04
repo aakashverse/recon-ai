@@ -374,7 +374,7 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
                 <Sparkles className="w-3 h-3 text-cyan-400" />
                 <span>Kaggle Benchmark (100)</span>
               </button>
-              <button
+              {/* <button
                 type="button"
                 onClick={handleOneClickKaggleRun}
                 disabled={isProcessing}
@@ -383,7 +383,7 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
               >
                 <Play className="w-3 h-3 fill-current" />
                 <span>Auto-Reconcile Kaggle</span>
-              </button>
+              </button> */}
               <a
                 href={activeTab === 'BANK_FEED' ? '/api/reconciliation/template-bank-feed' : '/api/reconciliation/template-invoices'}
                 download
