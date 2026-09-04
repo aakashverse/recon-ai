@@ -141,13 +141,7 @@ reconRouter.post('/import-bank-feed', async (req, res) => {
       }
     }
     if (referencedInvoices.length > 0) {
-      // 1. Reset any existing paid invoices to UNPAID for this fresh run
-      await Invoice.updateMany(
-        { invoiceNumber: { $in: referencedInvoices } },
-        { $set: { status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null, reconMethod: null } }
-      ).catch(() => {});
-
-      // 2. If any referenced Kaggle invoices are missing from DB, auto-seed them from datasets
+      // If any referenced Kaggle invoices are missing from DB, auto-seed them from datasets
       try {
         const existingInvs = await Invoice.find({ invoiceNumber: { $in: referencedInvoices } }, 'invoiceNumber').lean();
         const existingSet = new Set(existingInvs.map(i => i.invoiceNumber));
@@ -227,7 +221,7 @@ reconRouter.post('/load-kaggle-benchmark', async (req, res) => {
 
     // 2. Start batch reconciliation
     const batchId = `KAGGLE-BENCHMARK-${Date.now()}`;
-    ReconciliationEngine.processBatch(bankTransactions, batchId, { mockLlm: req.body.mockLlm ?? true }).catch((err) => {
+    ReconciliationEngine.processBatch(bankTransactions, batchId, { mockLlm: Boolean(req.body.mockLlm) }).catch((err) => {
       console.error('[Kaggle Benchmark Error]:', err);
     });
 

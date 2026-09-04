@@ -11,18 +11,24 @@ export async function matchTier1(bankTxn, context = {}) {
   const normalizedNarration = rawNarration.replace(/\b1NV\b/gi, 'INV').replace(/\b1NVOICE\b/gi, 'INVOICE');
   const bankAmount = Number(bankTxn.amount);
 
-  // 1. Check invoice number pattern in narration (e.g., INV-2024-1001, INV-1001, INV/2026/01, INV-KAG-0001)
-  const invoiceMatch = normalizedNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || normalizedNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
+  // 1. Check invoice number pattern in narration (e.g., INV-2024-1001, INV-1001, INV/2026/01, INV-KAG-0001, INVOICE-2024-1001)
+  const invoiceMatch = normalizedNarration.match(/\b((?:INV|INVOICE)[-_]?[0-9]{4}[-_]?[0-9]+|(?:INV|INVOICE)[-_]?[A-Z0-9]+[-_][0-9]+|(?:INV|INVOICE)[-_]?[0-9]+)\b/i) || normalizedNarration.match(/\b(INV\/[0-9]{4}\/[0-9]+)\b/i);
   let candidateInvoice = null;
 
   if (invoiceMatch) {
-    const invNumber = invoiceMatch[1].toUpperCase();
+    const rawInvNumber = (invoiceMatch[1] || invoiceMatch[2]).toUpperCase();
+    const invNumber = rawInvNumber.startsWith('INVOICE') ? rawInvNumber.replace(/^INVOICE/i, 'INV') : rawInvNumber;
+    const cleanInvKey = rawInvNumber.replace(/[^A-Z0-9]/g, '');
+
     if (context.invoiceByNumber) {
-      candidateInvoice = context.invoiceByNumber.get(invNumber) || null;
+      candidateInvoice = context.invoiceByNumber.get(invNumber) || context.invoiceByNumber.get(rawInvNumber) || context.invoiceByNumber.get(cleanInvKey) || null;
       if (candidateInvoice && candidateInvoice.status === 'PAID') candidateInvoice = null;
     } else {
       candidateInvoice = await Invoice.findOne({
-        invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
+        $or: [
+          { invoiceNumber: { $in: [invNumber, rawInvNumber] } },
+          { invoiceNumber: { $regex: new RegExp(`^${cleanInvKey}$`, 'i') } },
+        ],
         status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
       }).lean();
     }

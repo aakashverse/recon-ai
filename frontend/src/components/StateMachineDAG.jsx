@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -130,8 +130,8 @@ export function StateMachineDAG({ transaction, onClose }) {
   const tier = transaction.matchedTier;
   const backendNodes = Array.isArray(transaction.dagNodes) ? transaction.dagNodes : [];
 
-  const [hudCorner, setHudCorner] = useState('top-right');
-  const [isHudCollapsed, setIsHudCollapsed] = useState(false);
+  const [hudCorner, setHudCorner] = useState('bottom-right');
+  const [isHudCollapsed, setIsHudCollapsed] = useState(true);
 
   // Accountant Audit & Deduction Calculation
   const inv = typeof transaction.reconciledInvoiceId === 'object' && transaction.reconciledInvoiceId !== null
@@ -429,7 +429,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-200 font-mono">
                   {statutoryCode}
                 </span>
-                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
               </button>
             </div>
           ) : (
@@ -467,7 +467,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                     className="p-0.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 cursor-pointer"
                     title="Minimize"
                   >
-                    <ChevronUp className="w-3.5 h-3.5" />
+                    <ChevronDown className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>

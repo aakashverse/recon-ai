@@ -31,17 +31,23 @@ export async function matchTier2(bankTxn, context = {}) {
   const bankAmount = Number(bankTxn.amount);
 
   // 1. Identify potential invoice or vendor tokens from narration
-  const invoiceMatch = normalizedNarration.match(/\b(INV[-_]?[0-9]{4}[-_]?[0-9]+|INV[-_]?[0-9]+)\b/i) || normalizedNarration.match(/\b(INV[/-]?[A-Z0-9]+(?:-[0-9]+)?)\b/i);
+  const invoiceMatch = normalizedNarration.match(/\b((?:INV|INVOICE)[-_]?[0-9]{4}[-_]?[0-9]+|(?:INV|INVOICE)[-_]?[A-Z0-9]+[-_][0-9]+|(?:INV|INVOICE)[-_]?[0-9]+)\b/i) || normalizedNarration.match(/\b(INV\/[0-9]{4}\/[0-9]+)\b/i);
   let explicitInvoice = null;
 
   if (invoiceMatch) {
-    const invNumber = invoiceMatch[1].toUpperCase();
+    const rawInvNumber = (invoiceMatch[1] || invoiceMatch[2]).toUpperCase();
+    const invNumber = rawInvNumber.startsWith('INVOICE') ? rawInvNumber.replace(/^INVOICE/i, 'INV') : rawInvNumber;
+    const cleanInvKey = rawInvNumber.replace(/[^A-Z0-9]/g, '');
+
     if (context.invoiceByNumber) {
-      explicitInvoice = context.invoiceByNumber.get(invNumber) || null;
+      explicitInvoice = context.invoiceByNumber.get(invNumber) || context.invoiceByNumber.get(rawInvNumber) || context.invoiceByNumber.get(cleanInvKey) || null;
       if (explicitInvoice && explicitInvoice.status === 'PAID') explicitInvoice = null;
     } else {
       explicitInvoice = await Invoice.findOne({
-        invoiceNumber: { $regex: new RegExp(`^${invNumber}$`, 'i') },
+        $or: [
+          { invoiceNumber: { $in: [invNumber, rawInvNumber] } },
+          { invoiceNumber: { $regex: new RegExp(`^${cleanInvKey}$`, 'i') } },
+        ],
         status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
       }).lean();
     }

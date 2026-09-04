@@ -147,7 +147,7 @@ INV-2024-8003,Swiggy Bundl Technologies,75000,63559.32,11440.68,194C,1`;
       const res = await fetch('/api/reconciliation/load-kaggle-benchmark', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mockLlm: true }),
+        body: JSON.stringify({ mockLlm: false }),
       });
       const data = await res.json();
       if (res.ok) {

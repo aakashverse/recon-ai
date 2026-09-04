@@ -126,15 +126,15 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
   // Extract Invoice Number
   let matched_invoice_id = null;
   const invoiceRegexes = [
-    /\b(INV[-_]?[0-9]{4}[-_]?[0-9]+)\b/i,
-    /\b(INVOICE[-_]?[0-9]{4}[-_]?[0-9]+)\b/i,
-    /\b(INV[-_]?[0-9]+)\b/i,
+    /\b((?:INV|INVOICE)[-_]?[0-9]{4}[-_]?[0-9]+|(?:INV|INVOICE)[-_]?[A-Z0-9]+[-_][0-9]+|(?:INV|INVOICE)[-_]?[0-9]+)\b/i,
+    /\b(INV\/[0-9]{4}\/[0-9]+)\b/i,
   ];
 
   for (const regex of invoiceRegexes) {
     const match = normalizedOcr.match(regex);
     if (match) {
-      matched_invoice_id = match[1].toUpperCase().replace(/INVOICE/, 'INV');
+      const raw = (match[1] || match[2] || match[0]).toUpperCase();
+      matched_invoice_id = raw.startsWith('INVOICE') ? raw.replace(/^INVOICE/i, 'INV') : raw;
       break;
     }
   }
@@ -189,7 +189,8 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
   if (normalizedOcr.includes('CBDT') || normalizedOcr.includes('CIRCULAR 23') || normalizedOcr.includes('BASE-10PCT')) {
     deduction_type = 'TDS_CBDT_23';
     rule_id = 'TDS-CBDT-23';
-    deduction_amount = 16949.15;
+    const estBase = bankAmount / (1.18 - 0.10);
+    deduction_amount = Number((estBase * 0.10).toFixed(2));
   } else if (normalizedOcr.includes('TCS') || normalizedOcr.includes('SEC52') || normalizedOcr.includes('SEC 52') || normalizedOcr.includes('SECTION 52')) {
     deduction_type = 'TCS_52';
     rule_id = 'TCS-52';
@@ -220,21 +221,43 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
     const wireMatch = normalizedOcr.match(/(?:WIRE[-_ ]?FEE|CHG|CHARGES|PG[-_ ]?FEE)[-_ :]*(\d+)/i);
     deduction_amount = wireMatch ? Number(wireMatch[1]) : 100;
   } else if (matched_invoice_id) {
-    // If invoice matched without explicit narration tax token, test standard TDS deltas
-    const expectedGross2Pct = Number((bankAmount / 0.98).toFixed(0));
-    const expectedGross10Pct = Number((bankAmount / 0.90).toFixed(0));
-    if (context.allInvoices) {
-      const inv = context.allInvoices.find((i) => i.invoiceNumber === matched_invoice_id);
-      if (inv) {
-        if (Math.abs(inv.totalAmount - expectedGross2Pct) <= 1) {
-          deduction_type = 'TDS_194C';
-          rule_id = 'TDS-194C';
-          deduction_amount = Number((inv.totalAmount - bankAmount).toFixed(2));
-        } else if (Math.abs(inv.totalAmount - expectedGross10Pct) <= 1) {
-          deduction_type = 'TDS_194J';
-          rule_id = 'TDS-194J';
-          deduction_amount = Number((inv.totalAmount - bankAmount).toFixed(2));
-        }
+    // If invoice matched without explicit narration tax token, test standard statutory TDS deltas dynamically
+    let inv = null;
+    const cleanId = matched_invoice_id.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (context.invoiceByNumber) {
+      inv = context.invoiceByNumber.get(matched_invoice_id) || context.invoiceByNumber.get(cleanId) || null;
+    }
+    if (!inv && context.allInvoices) {
+      inv = context.allInvoices.find((i) => {
+        const iClean = i.invoiceNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        return iClean === cleanId || iClean.includes(cleanId) || cleanId.includes(iClean);
+      });
+    }
+
+    if (inv) {
+      const gross = Number(inv.totalAmount || inv.amount || 0);
+      const base = Number((gross / 1.18).toFixed(2));
+      // CBDT Cir 23 base TDS 10%
+      if (Math.abs((gross - base * 0.10) - bankAmount) <= 1) {
+        deduction_type = 'TDS_CBDT_23';
+        rule_id = 'TDS-CBDT-23';
+        deduction_amount = Number((gross - bankAmount).toFixed(2));
+      } else if (Math.abs(gross * 0.98 - bankAmount) <= 1) {
+        deduction_type = 'TDS_194C';
+        rule_id = 'TDS-194C';
+        deduction_amount = Number((gross - bankAmount).toFixed(2));
+      } else if (Math.abs(gross * 0.90 - bankAmount) <= 1) {
+        deduction_type = 'TDS_194J';
+        rule_id = 'TDS-194J';
+        deduction_amount = Number((gross - bankAmount).toFixed(2));
+      } else if (Math.abs(gross * 0.95 - bankAmount) <= 1) {
+        deduction_type = 'TDS_194H';
+        rule_id = 'TDS-194H';
+        deduction_amount = Number((gross - bankAmount).toFixed(2));
+      } else if (Math.abs(gross * 0.80 - bankAmount) <= 1) {
+        deduction_type = 'TDS_206AB';
+        rule_id = 'TDS-206AB';
+        deduction_amount = Number((gross - bankAmount).toFixed(2));
       }
     }
   }
@@ -253,8 +276,8 @@ export function localIntelligentExtraction(narration, bankAmount, context = {}) 
   };
 }
 
-// Bounded Timeout Helper (8000ms max per GenAI call to prevent hanging batches)
-function withTimeout(promise, ms = 8000) {
+// Bounded Timeout Helper (25000ms max per GenAI call to prevent hanging batches)
+function withTimeout(promise, ms = 25000) {
   return Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`GenAI API call timed out after ${ms}ms`)), ms)),
@@ -307,6 +330,52 @@ export async function executeGenAIWorker(bankTxn, options = {}, context = {}) {
     `- Rule ID: ${r.ruleId} | Section: ${r.section} | Rate: ${r.standardRate}% | Applies: ${r.description}`
   ).join('\n');
 
+  // Candidate Open Invoice Grounding:
+  // Lookup candidate open invoice to ground the LLM with exact billed gross amount, taxable base, and GST
+  let candidateInvoiceGrounding = '';
+  const invTokenMatch = narration.match(/\b((?:INV|INVOICE)[-_]?[0-9]{4}[-_]?[0-9]+|(?:INV|INVOICE)[-_]?[A-Z0-9]+[-_][0-9]+|(?:INV|INVOICE)[-_]?[0-9]+)\b|\b(INV\/[0-9]{4}\/[0-9]+)\b/i);
+  if (invTokenMatch) {
+    const rawInvNumber = (invTokenMatch[1] || invTokenMatch[2]).toUpperCase();
+    const invNumber = rawInvNumber.startsWith('INVOICE') ? rawInvNumber.replace(/^INVOICE/i, 'INV') : rawInvNumber;
+    const cleanInvKey = rawInvNumber.replace(/[^A-Z0-9]/g, '');
+
+    let candidate = null;
+    if (context.invoiceByNumber) {
+      candidate = context.invoiceByNumber.get(invNumber) || context.invoiceByNumber.get(rawInvNumber) || context.invoiceByNumber.get(cleanInvKey) || null;
+      if (candidate && candidate.status === 'PAID') candidate = null;
+    } else if (context.allInvoices) {
+      candidate = context.allInvoices.find((inv) => {
+        if (inv.status === 'PAID') return false;
+        const cKey = inv.invoiceNumber.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        return cKey === cleanInvKey || cKey.includes(cleanInvKey) || cleanInvKey.includes(cKey);
+      });
+    } else {
+      try {
+        candidate = await Invoice.findOne({
+          $or: [
+            { invoiceNumber: { $in: [invNumber, rawInvNumber] } },
+            { invoiceNumber: { $regex: new RegExp(`^${cleanInvKey}$`, 'i') } },
+          ],
+          status: { $in: ['UNPAID', 'PARTIALLY_PAID'] },
+        }).lean();
+      } catch (_) {}
+    }
+
+    if (candidate) {
+      const grossTotal = candidate.totalAmount || candidate.amount || 0;
+      const baseAmount = Number((grossTotal / 1.18).toFixed(2));
+      const gstAmount = Number((grossTotal - baseAmount).toFixed(2));
+      candidateInvoiceGrounding = `
+CANDIDATE OPEN INVOICE RECORD:
+- Invoice ID: ${candidate.invoiceNumber}
+- Customer / Vendor: ${candidate.customerName || candidate.vendor || 'N/A'}
+- Billed Gross Total Amount: ₹${grossTotal}
+- Taxable Base Amount (excl. 18% GST): ₹${baseAmount}
+- GST Amount (18%): ₹${gstAmount}
+- Status: ${candidate.status}`;
+    }
+  }
+
   // 4. Live Gemini API Call with Structured Output Schema & Graceful Degradation
   const genAI = getGenAI();
   const activeModel = getActiveModelName();
@@ -327,6 +396,7 @@ DISCLAIMER: These are representative statutory tax rates for evaluation datasets
 
 GROUNDED TAX RULE KNOWLEDGE BASE (Use ONLY these Rule IDs if applicable):
 ${taxGroundingContext}
+${candidateInvoiceGrounding}
 
 TRANSACTION DATA:
 - Narration: "${maskPIIInNarration(narration)}"
@@ -335,7 +405,7 @@ TRANSACTION DATA:
 REQUIREMENTS:
 1. Extract the invoice number (matched_invoice_id, normalizing any OCR typos like 1NV -> INV, 2O24 -> 2024, IOO -> 100) and vendor entity name (vendor_name).
 2. If TDS, TCS, or payment wire fee is mentioned or implied, classify deduction_type (e.g. TDS_194C, TDS_194J, TDS_194H, TDS_194Q, TDS_206AB, TDS_CBDT_23, TCS_52, WIRE_FEE, NONE) and set the exact rule_id from the grounded rule table (e.g. TDS-194C, TDS-194J, TDS-CBDT-23, FEE-WIRE-PG, TCS-52).
-3. Calculate deduction_amount and remaining_balance.
+3. If Candidate Open Invoice is provided, check if the deduction is computed on the Billed Gross Total or on the Taxable Base Amount (e.g. for CBDT Circular 23/2017 TDS on base only). Calculate deduction_amount = Gross Total - Bank Received Amount (or standard statutory % on gross or base) and remaining_balance accordingly.
 4. Output STRICT JSON conforming to this schema:
 {
   "matched_invoice_id": string or null,
@@ -366,9 +436,9 @@ REQUIREMENTS:
       return obj;
     };
 
-    // Attempt 1 (With Bounded 8000ms Timeout)
+    // Attempt 1 (With Bounded 25000ms Timeout)
     try {
-      const res1 = await withTimeout(structuredModel.generateContent(basePrompt), 8000);
+      const res1 = await withTimeout(structuredModel.generateContent(basePrompt), 25000);
       const rawText1 = res1.response.text();
       const cleanJson1 = rawText1.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsed1 = JSON.parse(cleanJson1);
@@ -390,7 +460,7 @@ REQUIREMENTS:
 CRITICAL: Your previous response failed schema validation with error: ${err1.message}.
 Ensure matched_invoice_id, deduction_type, deduction_amount, remaining_balance, rule_id, confidence, and reasoning are valid JSON types. Output ONLY valid JSON.`;
 
-        const res2 = await withTimeout(structuredModel.generateContent(retryPrompt), 8000);
+        const res2 = await withTimeout(structuredModel.generateContent(retryPrompt), 25000);
         const rawText2 = res2.response.text();
         const cleanJson2 = rawText2.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
         const parsed2 = JSON.parse(cleanJson2);
@@ -485,11 +555,11 @@ export async function matchTier3(bankTxn, options = {}, context = {}) {
         .replace(/([0-9])O([0-9])/g, '$10$2')
         .replace(/([0-9])OO([0-9])/g, '$100$2');
 
-      const narrationInvMatch = normalizedNarration.match(/\b(?:INV|INVOICE)[-_/ ]*([A-Z0-9]+[-_/]?[0-9]+)\b/i) || normalizedNarration.match(/\b([A-Z0-9]+[-_][0-9]{4})\b/i);
+      const narrationInvMatch = normalizedNarration.match(/\b((?:INV|INVOICE)[-_]?[0-9]{4}[-_]?[0-9]+|(?:INV|INVOICE)[-_]?[A-Z0-9]+[-_][0-9]+|(?:INV|INVOICE)[-_]?[0-9]+)\b/i) || normalizedNarration.match(/\b(INV\/[0-9]{4}\/[0-9]+)\b/i) || normalizedNarration.match(/\b([A-Z0-9]+[-_][0-9]{4})\b/i);
       if (narrationInvMatch) {
-        const rawToken = narrationInvMatch[1].replace(/[/_ ]/g, '-');
+        const rawToken = (narrationInvMatch[1] || narrationInvMatch[2] || narrationInvMatch[0]).replace(/[/_ ]/g, '-');
         const candidateToken = rawToken.toUpperCase().startsWith('INV-') ? rawToken.toUpperCase() : `INV-${rawToken.toUpperCase()}`;
-        const cleanInvDigits = narrationInvMatch[1].replace(/[^0-9]/g, '');
+        const cleanInvDigits = rawToken.replace(/[^0-9]/g, '');
 
         if (context.allInvoices) {
           candidateInvoices = context.allInvoices.filter((i) =>
