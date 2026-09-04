@@ -159,18 +159,30 @@ export function StateMachineDAG({ transaction, onClose }) {
     }
   }
 
-  const invoiceNumber = inv?.invoiceNumber || extractInvoiceFromNarration(transaction.narration) || 'INV-RECON';
-  const customerName = inv?.customerName || extractCustomerFromNarration(transaction.narration) || 'Counterparty Commercial Entity';
+  const cbNode = backendNodes.find((n) => n?.nodeKey === 'STEP_CIRCUIT_BREAKER');
+  const cbData = { ...cb, ...(cbNode?.outputData || {}) };
+
+  const invoiceNumber = inv?.invoiceNumber || cbData?.invoiceNumber || extractInvoiceFromNarration(transaction.narration) || 'INV-RECON';
+  const customerName = inv?.customerName || cbData?.customerName || extractCustomerFromNarration(transaction.narration) || 'Counterparty Commercial Entity';
 
   let invoiceGross = inv ? Number(inv.totalAmount || 0) : 0;
   if (!invoiceGross) {
-    if (tdsRate > 0 && tdsRate < 100) {
+    if (cbData.invoiceGross) {
+      invoiceGross = Number(cbData.invoiceGross);
+    } else if (cbData.expectedAmount) {
+      invoiceGross = Number(cbData.expectedAmount);
+    } else if (tdsRate > 0 && tdsRate < 100) {
       invoiceGross = Number((bankAmount / (1 - tdsRate / 100)).toFixed(2));
       totalDeductions = Number((invoiceGross - bankAmount).toFixed(2));
       tdsAmount = totalDeductions;
     } else {
       invoiceGross = bankAmount;
     }
+  }
+
+  const varianceShortfall = isException ? Number(Math.abs(cbData.difference || cbData.discrepancyAmount || (invoiceGross - bankAmount)).toFixed(2)) : 0;
+  if (isException && totalDeductions === 0 && varianceShortfall > 0) {
+    totalDeductions = varianceShortfall;
   }
 
   const baseAmount = inv ? Number(inv.baseAmount || (invoiceGross / 1.18)) : Number((invoiceGross / 1.18).toFixed(2));
@@ -479,7 +491,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                     <span className="font-semibold text-white">₹{invoiceGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between text-amber-400">
-                    <span>Less {statutoryCode} ({tdsRate > 0 ? `${tdsRate}%` : 'TDS'}):</span>
+                    <span>{isException ? 'Discrepancy (Shortfall):' : `Less ${statutoryCode} (${tdsRate > 0 ? `${tdsRate}%` : 'TDS'}):`}</span>
                     <span className="font-semibold">-₹{totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between text-emerald-400 pt-1 border-t border-slate-800/80 font-bold">
@@ -506,7 +518,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                   )}
                 </div>
 
-                {/* 3. Accountant Headaches & Actions (Form 16A / 26AS Match) */}
+                {/* 3. Accountant Actions (Form 16A / 26AS Match) */}
                 <div className="p-1.5 rounded-lg bg-cyan-950/30 border border-cyan-500/20 text-[9.5px] text-cyan-200/90 space-y-0.5">
                   <div className="font-bold text-cyan-300 flex items-center gap-1">
                     <FileCheck2 className="w-3 h-3 text-cyan-400 shrink-0" />
@@ -522,9 +534,13 @@ export function StateMachineDAG({ transaction, onClose }) {
                 </div>
 
                 {/* 4. Double-Entry GL Impact (Single Clean Line) */}
-                <div className="pt-1 border-t border-slate-800/80 font-mono text-[9px] text-slate-400 flex justify-between">
+                <div className="pt-1 border-t border-slate-800/80 font-mono text-[8.6px] text-slate-400 flex justify-between">
                   <span className="text-slate-500">GL:</span>
-                  <span className="text-slate-300">Dr Bank ₹{(bankAmount / 1000).toFixed(1)}k • Dr TDS ₹{(totalDeductions / 1000).toFixed(1)}k • Cr AR ₹{(invoiceGross / 1000).toFixed(1)}k</span>
+                  <span className="text-slate-300">
+                    {isException && varianceShortfall > 0
+                      ? `Dr Bank ₹${(bankAmount / 1000).toFixed(1)}k •Dr Suspense ₹${(varianceShortfall / 1000).toFixed(1)}k •Cr AR ₹${(invoiceGross / 1000).toFixed(1)}k`
+                      : `Dr Bank ₹${(bankAmount / 1000).toFixed(1)}k •Dr TDS ₹${(totalDeductions / 1000).toFixed(1)}k •Cr AR ₹${(invoiceGross / 1000).toFixed(1)}k`}
+                  </span>
                 </div>
               </div>
             </div>
