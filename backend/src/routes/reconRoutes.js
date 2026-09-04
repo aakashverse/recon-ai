@@ -830,9 +830,11 @@ reconRouter.get('/stats', async (req, res) => {
       BankLedger.countDocuments({ 'executionMetrics.ragCacheHit': true }),
     ]);
 
-    const totalInflow = invoices
-      .filter((i) => i.status === 'PAID')
-      .reduce((sum, i) => sum + (i.paidAmount || 0), 0);
+    const totalInflow = matchedCount === 0
+      ? 0
+      : invoices
+          .filter((i) => i.status === 'PAID')
+          .reduce((sum, i) => sum + (i.paidAmount || 0), 0);
 
     const pendingInflow = invoices
       .filter((i) => i.status === 'UNPAID' || i.status === 'PARTIALLY_PAID')
@@ -1011,7 +1013,6 @@ reconRouter.post('/reset', async (req, res) => {
       Invoice.deleteMany({ invoiceNumber: { $regex: /^BANK-/i } }),
       Invoice.updateMany({}, { $set: { status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null, reconMethod: null } }),
     ]);
-    await Invoice.updateOne({ invoiceNumber: 'INV-2024-5004' }, { $set: { status: 'PAID', paidAmount: 100000 } });
 
     sseManager.broadcast('dashboard:reset', { timestamp: new Date().toISOString() });
 

@@ -433,154 +433,100 @@ export function StateMachineDAG({ transaction, onClose }) {
               </button>
             </div>
           ) : (
-            <div className={`absolute ${CORNER_CLASSES[hudCorner]} z-20 w-[340px] max-h-[calc(100%-2rem)] flex flex-col rounded-2xl bg-slate-900/95 border border-slate-700/80 shadow-2xl backdrop-blur-md overflow-hidden text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-150`}>
-              {/* Header with Title, 4-Corner Dock Switcher & Minimize */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 bg-slate-950/80 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 rounded-lg bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
-                    <Calculator className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-white text-[12px] leading-tight">Accountant Deduction Inspector</h4>
-                    <p className="text-[10px] text-slate-400">Statutory Tax &amp; Ledger Allocation</p>
-                  </div>
+            <div className={`absolute ${CORNER_CLASSES[hudCorner]} z-20 w-[290px] rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-2xl backdrop-blur-md overflow-hidden text-xs text-slate-200 select-none animate-in fade-in zoom-in-95 duration-150`}>
+              {/* Header: Title + Statutory Badge + TL/TR/BL/BR + Minimize */}
+              <div className="flex items-center justify-between px-3 py-2 bg-slate-950/90 border-b border-slate-800">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Calculator className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                  <span className="font-bold text-white text-[11px] truncate">Tax &amp; Deduction Slip</span>
+                  <span className="text-[9px] font-mono font-bold px-1.5 py-0.2 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 shrink-0">
+                    {statutoryCode}
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  {/* Corner Dock Switcher: TL, TR, BL, BR */}
-                  <div className="flex items-center rounded-lg bg-slate-800/80 p-0.5 border border-slate-700/70" title="Dock to corner">
+                <div className="flex items-center gap-1 shrink-0">
+                  {/* 4-Corner Dock Switcher */}
+                  <div className="flex items-center rounded bg-slate-800 p-0.5 border border-slate-700">
                     {(['top-left', 'top-right', 'bottom-left', 'bottom-right']).map((c) => (
                       <button
                         key={c}
                         type="button"
                         onClick={() => setHudCorner(c)}
-                        className={`px-1 py-0.5 text-[9px] font-mono rounded transition-colors cursor-pointer ${
+                        className={`px-1 py-0.5 text-[8px] font-mono rounded transition-colors cursor-pointer ${
                           hudCorner === c ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
                         }`}
-                        title={`Dock to ${c.replace('-', ' ')}`}
+                        title={`Dock ${c.replace('-', ' ')}`}
                       >
                         {c === 'top-left' ? 'TL' : c === 'top-right' ? 'TR' : c === 'bottom-left' ? 'BL' : 'BR'}
                       </button>
                     ))}
                   </div>
-
                   <button
                     type="button"
                     onClick={() => setIsHudCollapsed(true)}
-                    className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition cursor-pointer"
-                    title="Minimize HUD"
+                    className="p-0.5 text-slate-400 hover:text-white rounded hover:bg-slate-800 cursor-pointer"
+                    title="Minimize"
                   >
                     <ChevronUp className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
 
-              {/* Content Area with custom scrollbar */}
-              <div className="p-3.5 space-y-3 overflow-y-auto max-h-[480px]">
-                {/* 1. DEDUCTION TYPE & WHERE IT IS DEDUCTED */}
-                <div className="p-2.5 rounded-xl bg-slate-950/70 border border-cyan-500/30 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-semibold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
-                      <Receipt className="w-3 h-3" />
-                      Deduction Classification
-                    </span>
-                    <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                      {statutoryCode}
-                    </span>
+              {/* Compact Body — High-Signal Accountant Headaches */}
+              <div className="p-2.5 space-y-2">
+                {/* 1. The Cash Reconciliation Numbers */}
+                <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-[10.5px] space-y-0.5">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Gross Invoice:</span>
+                    <span className="font-semibold text-white">₹{invoiceGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
-
-                  <div>
-                    <p className="font-bold text-white text-[12px]">{deductionType}</p>
-                    <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{statutoryRule}</p>
+                  <div className="flex justify-between text-amber-400">
+                    <span>Less {statutoryCode} ({tdsRate > 0 ? `${tdsRate}%` : 'TDS'}):</span>
+                    <span className="font-semibold">-₹{totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
-
-                  <div className="pt-2 border-t border-slate-800/80 space-y-1.5 text-[11px]">
-                    <div className="flex items-start gap-1.5">
-                      <Building2 className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
-                      <div>
-                        <span className="text-slate-400">Where Deducted: </span>
-                        <span className="text-white font-medium">{whereDeducted}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-1.5">
-                      <Landmark className="w-3.5 h-3.5 text-emerald-400 mt-0.5 shrink-0" />
-                      <div>
-                        <span className="text-slate-400">Deposited To: </span>
-                        <span className="text-emerald-300 font-medium">{destinationEntity}</span>
-                      </div>
-                    </div>
+                  <div className="flex justify-between text-emerald-400 pt-1 border-t border-slate-800/80 font-bold">
+                    <span className="font-sans">Net Bank Credit:</span>
+                    <span>₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                   </div>
                 </div>
 
-                {/* 2. ACCOUNTANT RECONCILIATION EQUATION */}
-                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 space-y-2">
-                  <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
-                    <span className="flex items-center gap-1">
-                      <Scale className="w-3 h-3 text-slate-400" />
-                      Invoice vs Bank Math
-                    </span>
-                    <span className="font-mono text-slate-300">Ref: {invoiceNumber}</span>
+                {/* 2. Where Deducted & Tax Base (CBDT Cir 23/2017) */}
+                <div className="space-y-1 text-[10px] leading-tight text-slate-300">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Withheld by:</span>
+                    <span className="text-white font-medium truncate max-w-[170px] text-right">{customerName}</span>
                   </div>
-
-                  <div className="space-y-1 font-mono text-[11px]">
-                    <div className="flex justify-between text-slate-300">
-                      <span>Billed Gross Amount:</span>
-                      <span className="font-semibold text-white">₹{invoiceGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-400 text-[10px] pl-2 border-l border-slate-800">
-                      <span>Taxable Base Value:</span>
-                      <span>₹{baseAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-slate-400 text-[10px] pl-2 border-l border-slate-800">
-                      <span>GST Component (18%):</span>
-                      <span>₹{taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-amber-400 pt-1 border-t border-slate-800/60">
-                      <span>Less Deductions Total:</span>
-                      <span className="font-semibold">-₹{totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    <div className="flex justify-between text-emerald-400 pt-1 border-t border-slate-800">
-                      <span className="font-sans font-bold">Net Bank Credit Received:</span>
-                      <span className="font-bold text-[12px]">₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Deposited to:</span>
+                    <span className="text-emerald-300 font-medium truncate max-w-[170px] text-right">{destinationEntity}</span>
                   </div>
+                  {tdsAmount > 0 && (
+                    <div className="flex justify-between text-[9.5px] text-slate-400 pt-0.5">
+                      <span>Base (ex-GST):</span>
+                      <span className="font-mono text-slate-300">₹{baseAmount.toLocaleString('en-IN')} (18% GST: ₹{taxAmount.toLocaleString('en-IN')})</span>
+                    </div>
+                  )}
                 </div>
 
-                {/* 3. DOUBLE-ENTRY GENERAL LEDGER BOOKING */}
-                <div className="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 space-y-1.5">
-                  <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                    <FileSpreadsheet className="w-3 h-3 text-slate-400" />
-                    Double-Entry General Ledger Impact
-                  </span>
-
-                  <div className="p-2 rounded-lg bg-slate-900/90 font-mono text-[10px] space-y-1 text-slate-300">
-                    <div className="flex justify-between text-emerald-300">
-                      <span>Dr. Bank Current A/c</span>
-                      <span>₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
-                    {totalDeductions > 0 && (
-                      <div className="flex justify-between text-amber-300">
-                        <span>Dr. {tdsAmount > 0 ? `TDS Receivable A/c (${statutoryCode})` : 'Bank Charges Expense A/c'}</span>
-                        <span>₹{totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-slate-300 pt-1 border-t border-slate-800">
-                      <span>Cr. Accounts Receivable ({customerName.substring(0, 16)})</span>
-                      <span>₹{invoiceGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-                    </div>
+                {/* 3. Accountant Headaches & Actions (Form 16A / 26AS Match) */}
+                <div className="p-1.5 rounded-lg bg-cyan-950/30 border border-cyan-500/20 text-[9.5px] text-cyan-200/90 space-y-0.5">
+                  <div className="font-bold text-cyan-300 flex items-center gap-1">
+                    <FileCheck2 className="w-3 h-3 text-cyan-400 shrink-0" />
+                    <span>Accountant Headaches &amp; Actions:</span>
                   </div>
-                </div>
-
-                {/* 4. STATUTORY COMPLIANCE & AUDIT CHECKLIST */}
-                <div className="p-2.5 rounded-xl bg-slate-950/30 border border-slate-800/70 text-[10px] text-slate-400 space-y-1">
-                  <span className="font-semibold text-slate-300 flex items-center gap-1">
-                    <FileCheck2 className="w-3 h-3 text-emerald-400" />
-                    Accountant Compliance Note
-                  </span>
-                  <p className="leading-relaxed text-slate-300">
-                    {taxCertReq}
+                  <p className="leading-snug text-slate-300">
+                    {tdsAmount > 0
+                      ? '• Await Form 16A from client • Match credit in 26AS / AIS on TRACES portal.'
+                      : isException
+                      ? '• Discrepancy logged in Outbox • Request remittance advice / Form 16A.'
+                      : '• 100% Gross match • Zero withholding • No Form 16A certificate needed.'}
                   </p>
+                </div>
+
+                {/* 4. Double-Entry GL Impact (Single Clean Line) */}
+                <div className="pt-1 border-t border-slate-800/80 font-mono text-[9px] text-slate-400 flex justify-between">
+                  <span className="text-slate-500">GL:</span>
+                  <span className="text-slate-300">Dr Bank ₹{(bankAmount / 1000).toFixed(1)}k • Dr TDS ₹{(totalDeductions / 1000).toFixed(1)}k • Cr AR ₹{(invoiceGross / 1000).toFixed(1)}k</span>
                 </div>
               </div>
             </div>
