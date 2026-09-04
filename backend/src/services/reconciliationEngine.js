@@ -228,7 +228,7 @@ export class ReconciliationEngine {
         // 4. Cost Circuit Breaker Check before Tier 3 GenAI Call
         // -------------------------------------------------------------------
         const currentBatchCost = batchCostTracker.get(batchId) || 0;
-        const maxBatchCost = options.costCapUsd || options.maxGenAICost || (process.env.GENAI_COST_CAP_USD ? parseFloat(process.env.GENAI_COST_CAP_USD) : 0.50);
+        const maxBatchCost = options.costCapUsd || options.maxGenAICost || (process.env.GENAI_COST_CAP_USD ? parseFloat(process.env.GENAI_COST_CAP_USD) : 5.00);
 
         if (currentBatchCost >= maxBatchCost) {
           dagNodes.push({
@@ -449,19 +449,21 @@ export class ReconciliationEngine {
 
           // Update Invoices
           if (splitInvoices.length >= 2) {
-            const splitIds = splitInvoices.map((i) => i.invoiceId);
-            await Invoice.updateMany(
-              { _id: { $in: splitIds } },
-              {
-                $set: {
-                  status: 'PAID',
-                  reconciledBankTxnId: ledgerDoc._id,
-                  reconciledAt: new Date(),
-                  reconMethod: 'TIER_2_SPLIT_MATCH',
+            for (const s of splitInvoices) {
+              await Invoice.updateOne(
+                { _id: s.invoiceId },
+                {
+                  $set: {
+                    status: 'PAID',
+                    paidAmount: s.amount || 0,
+                    reconciledBankTxnId: ledgerDoc._id,
+                    reconciledAt: new Date(),
+                    reconMethod: 'TIER_2_SPLIT_MATCH',
+                  },
                 },
-              },
-              { session }
-            );
+                { session }
+              );
+            }
           } else {
             await Invoice.updateOne(
               { _id: candidateInvoice._id },
@@ -715,6 +717,14 @@ export class ReconciliationEngine {
       startedAt: new Date().toISOString(),
     });
 
+    // 0. Ensure referenced invoices are present in MongoDB
+    try {
+      const { ensureInvoicesForTransactions } = await import('../utils/masterInvoiceSeeder.js');
+      await ensureInvoicesForTransactions(transactions);
+    } catch (e) {
+      console.warn('[ReconEngine] Notice ensuring invoices:', e.message);
+    }
+
     // 1. High-Performance Pre-fetching: Load open invoices & active rules into in-memory index
     const [openInvoicesDocs, activeRulesDocs] = await Promise.all([
       Invoice.find({ status: { $in: ['UNPAID', 'PARTIALLY_PAID'] } }).lean(),
@@ -723,8 +733,12 @@ export class ReconciliationEngine {
 
     const invoiceByNumber = new Map();
     for (const inv of openInvoicesDocs) {
-      invoiceByNumber.set(inv.invoiceNumber.toUpperCase(), inv);
-      invoiceByNumber.set(inv.invoiceNumber.toUpperCase().replace(/[^A-Z0-9]/g, ''), inv);
+      const raw = inv.invoiceNumber.toUpperCase();
+      const clean = raw.replace(/[^A-Z0-9]/g, '');
+      const norm = raw.startsWith('INVOICE') ? raw.replace(/^INVOICE/i, 'INV') : raw;
+      invoiceByNumber.set(raw, inv);
+      invoiceByNumber.set(clean, inv);
+      invoiceByNumber.set(norm, inv);
     }
 
     const context = {

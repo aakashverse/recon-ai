@@ -52,6 +52,15 @@ app.use(errorHandler);
 async function startServer() {
   try {
     await connectDB();
+
+    const { Invoice } = await import('./models/Invoice.js');
+    const invoiceCount = await Invoice.countDocuments();
+    if (invoiceCount === 0) {
+      console.log('[Server Startup] Master invoices not found in database. Auto-seeding...');
+      const { seedMasterInvoices } = await import('./utils/masterInvoiceSeeder.js');
+      await seedMasterInvoices();
+    }
+
     const server = app.listen(PORT, () => {
       console.log(`\n===============================================================`);
       console.log(`🚀 Razorpay B2B AI Finance Controller Backend running on port ${PORT}`);

@@ -46,9 +46,7 @@ function extractCustomerFromNarration(narration = '') {
 
 const CORNER_CLASSES = {
   'top-right': 'top-4 right-4',
-  'top-left': 'top-4 left-4',
   'bottom-right': 'bottom-4 right-4',
-  'bottom-left': 'bottom-16 left-4',
 };
 
 // Custom DAG Node component
@@ -447,17 +445,17 @@ export function StateMachineDAG({ transaction, onClose }) {
                 <div className="flex items-center gap-1 shrink-0">
                   {/* 4-Corner Dock Switcher */}
                   <div className="flex items-center rounded bg-slate-800 p-0.5 border border-slate-700">
-                    {(['top-left', 'top-right', 'bottom-left', 'bottom-right']).map((c) => (
+                    {(['top-right', 'bottom-right']).map((c) => (
                       <button
                         key={c}
                         type="button"
                         onClick={() => setHudCorner(c)}
-                        className={`px-1 py-0.5 text-[8px] font-mono rounded transition-colors cursor-pointer ${
+                        className={`px-1.5 py-0.2 text-[8px] font-mono rounded transition-colors cursor-pointer ${
                           hudCorner === c ? 'bg-cyan-500 text-slate-950 font-bold' : 'text-slate-400 hover:text-white'
                         }`}
                         title={`Dock ${c.replace('-', ' ')}`}
                       >
-                        {c === 'top-left' ? 'TL' : c === 'top-right' ? 'TR' : c === 'bottom-left' ? 'BL' : 'BR'}
+                        {c === 'top-right' ? 'T' : c === 'bottom-right' ? 'B' : 'B'}
                       </button>
                     ))}
                   </div>
@@ -501,7 +499,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                     <span className="text-emerald-300 font-medium truncate max-w-[170px] text-right">{destinationEntity}</span>
                   </div>
                   {tdsAmount > 0 && (
-                    <div className="flex justify-between text-[9.5px] text-slate-400 pt-0.5">
+                    <div className="flex justify-between text-[9.3px] text-slate-400 pt-0.5">
                       <span>Base (ex-GST):</span>
                       <span className="font-mono text-slate-300">₹{baseAmount.toLocaleString('en-IN')} (18% GST: ₹{taxAmount.toLocaleString('en-IN')})</span>
                     </div>
@@ -512,7 +510,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                 <div className="p-1.5 rounded-lg bg-cyan-950/30 border border-cyan-500/20 text-[9.5px] text-cyan-200/90 space-y-0.5">
                   <div className="font-bold text-cyan-300 flex items-center gap-1">
                     <FileCheck2 className="w-3 h-3 text-cyan-400 shrink-0" />
-                    <span>Accountant Headaches &amp; Actions:</span>
+                    <span>Accountant Actions:</span>
                   </div>
                   <p className="leading-snug text-slate-300">
                     {tdsAmount > 0

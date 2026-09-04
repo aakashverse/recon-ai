@@ -295,7 +295,7 @@ export function normalizeInvoiceRows(rawRows) {
       const str = String(rawInv).trim();
       invoiceNumber = str.startsWith('INV-') ? str : `INV-${str}`;
     } else {
-      invoiceNumber = `INV-IMPORT-${idx + 1}`;
+      return null;
     }
 
     // 2. Customer Name / Vendor
@@ -390,5 +390,5 @@ export function normalizeInvoiceRows(rawRows) {
       expectedNetAmount: totalAmount - expectedTdsAmount,
       status: 'UNPAID',
     };
-  }).filter((inv) => inv.totalAmount > 0);
+  }).filter((inv) => inv && inv.totalAmount > 0);
 }

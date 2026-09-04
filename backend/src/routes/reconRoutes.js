@@ -14,6 +14,7 @@ import { runSettlementAgent } from '../services/settlementAgent.js';
 import { JournalService } from '../services/journalService.js';
 import { calculateEventHash, GENESIS_HASH } from '../utils/hasher.js';
 import { clearRAGCache } from '../services/tier3GenAIPool.js';
+import { seedMasterInvoices, ensureInvoicesForTransactions } from '../utils/masterInvoiceSeeder.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -131,44 +132,8 @@ reconRouter.post('/import-bank-feed', async (req, res) => {
       });
     }
 
-    // Ensure any invoices referenced in the incoming bank feed are present and set to UNPAID
-    const referencedInvoices = [];
-    for (const t of txns) {
-      const match = (t.narration || '').replace(/\b1NV\b/gi, 'INV').match(/\b(?:INV|INVOICE)[-_/ ]*([A-Z0-9]+[-_/]?[0-9]+)\b/i);
-      if (match) {
-        const invNum = match[1].toUpperCase().startsWith('INV-') ? match[1].toUpperCase() : `INV-${match[1].replace(/[/_ ]/g, '-').toUpperCase()}`;
-        referencedInvoices.push(invNum);
-      }
-    }
-    if (referencedInvoices.length > 0) {
-      // If any referenced Kaggle invoices are missing from DB, auto-seed them from datasets
-      try {
-        const existingInvs = await Invoice.find({ invoiceNumber: { $in: referencedInvoices } }, 'invoiceNumber').lean();
-        const existingSet = new Set(existingInvs.map(i => i.invoiceNumber));
-        const missing = referencedInvoices.filter(id => !existingSet.has(id));
-
-        if (missing.length > 0) {
-          const fs = await import('fs');
-          const path = await import('path');
-          const { fileURLToPath } = await import('url');
-          const __filename = fileURLToPath(import.meta.url);
-          const __dirname = path.dirname(__filename);
-          const kaggleJsonPath = path.resolve(__dirname, '../../../datasets/kaggle-reconciliation-100.json');
-
-          if (fs.existsSync(kaggleJsonPath)) {
-            const kaggleData = JSON.parse(fs.readFileSync(kaggleJsonPath, 'utf8'));
-            const missingToInsert = kaggleData.invoices
-              .filter(inv => missing.includes(inv.invoiceNumber))
-              .map(inv => ({ ...inv, status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null }));
-            if (missingToInsert.length > 0) {
-              await Invoice.insertMany(missingToInsert, { ordered: false }).catch(() => {});
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('[Auto-Invoice Ingest] Warning seeding missing invoices:', err.message);
-      }
-    }
+    // Ensure any invoices referenced in the incoming bank feed are present in MongoDB
+    await ensureInvoicesForTransactions(txns);
 
     const batchId = `REAL-FEED-${Date.now()}`;
     
@@ -471,6 +436,9 @@ reconRouter.post('/batch', async (req, res) => {
     if (!Array.isArray(transactions) || !transactions.length) {
       return res.status(400).json({ error: 'transactions array is required' });
     }
+
+    // Ground referenced invoices in MongoDB before batch execution
+    await ensureInvoicesForTransactions(transactions);
 
     // Run batch asynchronously while returning batchId to client immediately
     const batchId = `BATCH-${Date.now()}`;
@@ -824,11 +792,11 @@ reconRouter.get('/stats', async (req, res) => {
       BankLedger.countDocuments({ 'executionMetrics.ragCacheHit': true }),
     ]);
 
-    const totalInflow = matchedCount === 0
-      ? 0
-      : invoices
-          .filter((i) => i.status === 'PAID')
-          .reduce((sum, i) => sum + (i.paidAmount || 0), 0);
+    let totalInflow = 0;
+    if (matchedCount > 0) {
+      const matchedTxns = await BankLedger.find({ reconciliationStatus: 'MATCHED' }, 'amount').lean();
+      totalInflow = matchedTxns.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    }
 
     const pendingInflow = invoices
       .filter((i) => i.status === 'UNPAID' || i.status === 'PARTIALLY_PAID')
@@ -1004,9 +972,11 @@ reconRouter.post('/reset', async (req, res) => {
       BankLedger.deleteMany({}),
       ReconciliationEvent.deleteMany({}),
       JournalEntry.deleteMany({}),
-      Invoice.deleteMany({ invoiceNumber: { $regex: /^BANK-/i } }),
-      Invoice.updateMany({}, { $set: { status: 'UNPAID', paidAmount: 0, reconciledBankTxnId: null, reconciledAt: null, reconMethod: null } }),
+      Invoice.deleteMany({ invoiceNumber: { $regex: /^(BANK-|INV-IMPORT-)/i } }),
     ]);
+
+    // Ensure master sample invoices & Kaggle benchmark invoices are present and reset to UNPAID
+    await seedMasterInvoices();
 
     sseManager.broadcast('dashboard:reset', { timestamp: new Date().toISOString() });
 
