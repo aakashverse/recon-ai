@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -45,7 +45,7 @@ function extractCustomerFromNarration(narration = '') {
 }
 
 const CORNER_CLASSES = {
-  'top-right': 'top-4 right-4',
+  'bottom-left': 'bottom-4 left-4',
   'bottom-right': 'bottom-4 right-4',
 };
 
@@ -162,11 +162,28 @@ export function StateMachineDAG({ transaction, onClose }) {
   const cbNode = backendNodes.find((n) => n?.nodeKey === 'STEP_CIRCUIT_BREAKER');
   const cbData = { ...cb, ...(cbNode?.outputData || {}) };
 
-  const invoiceNumber = inv?.invoiceNumber || cbData?.invoiceNumber || extractInvoiceFromNarration(transaction.narration) || 'INV-RECON';
-  const customerName = inv?.customerName || cbData?.customerName || extractCustomerFromNarration(transaction.narration) || 'Counterparty Commercial Entity';
+  // Explicit check for Unmatched Credit (Direct Bank Inflow with no matching candidate invoice)
+  const isUnmatchedCredit = Boolean(
+    isException && (
+      cbData.discrepancyType === 'UNMATCHED' ||
+      cbData.reason?.toLowerCase().includes('no matching invoice') ||
+      cbData.reason?.toLowerCase().includes('no candidate invoice') ||
+      cbData.reason?.toLowerCase().includes('no open invoice') ||
+      cbData.equation?.toLowerCase().includes('no matching invoice') ||
+      (!inv && !cbData.invoiceGross && !cbData.expectedAmount)
+    )
+  );
+
+  const invoiceNumber = isUnmatchedCredit
+    ? 'NONE (Unmatched Credit)'
+    : (inv?.invoiceNumber || cbData?.invoiceNumber || extractInvoiceFromNarration(transaction.narration) || 'INV-RECON');
+
+  const customerName = isUnmatchedCredit
+    ? 'Unknown Remitter (Direct Bank Deposit)'
+    : (inv?.customerName || cbData?.customerName || extractCustomerFromNarration(transaction.narration) || 'Counterparty Commercial Entity');
 
   let invoiceGross = inv ? Number(inv.totalAmount || 0) : 0;
-  if (!invoiceGross) {
+  if (!invoiceGross && !isUnmatchedCredit) {
     if (cbData.invoiceGross) {
       invoiceGross = Number(cbData.invoiceGross);
     } else if (cbData.expectedAmount) {
@@ -180,9 +197,20 @@ export function StateMachineDAG({ transaction, onClose }) {
     }
   }
 
-  const varianceShortfall = isException ? Number(Math.abs(cbData.difference || cbData.discrepancyAmount || (invoiceGross - bankAmount)).toFixed(2)) : 0;
-  if (isException && totalDeductions === 0 && varianceShortfall > 0) {
-    totalDeductions = varianceShortfall;
+  // Calculate variances for exceptions
+  let varianceShortfall = 0;
+  let varianceExcess = 0;
+
+  if (isException && !isUnmatchedCredit && invoiceGross > 0) {
+    const diff = cbData.difference !== undefined
+      ? Number(cbData.difference)
+      : Number((bankAmount - (invoiceGross - totalDeductions)).toFixed(2));
+    if (diff < -0.05) {
+      varianceShortfall = Number(Math.abs(diff).toFixed(2));
+      if (totalDeductions === 0) totalDeductions = varianceShortfall;
+    } else if (diff > 0.05) {
+      varianceExcess = Number(diff.toFixed(2));
+    }
   }
 
   const baseAmount = inv ? Number(inv.baseAmount || (invoiceGross / 1.18)) : Number((invoiceGross / 1.18).toFixed(2));
@@ -196,7 +224,14 @@ export function StateMachineDAG({ transaction, onClose }) {
   let statutoryCode = 'NIL_DEDUCTIONS';
   let taxCertReq = 'No TDS deducted. No Form 16A TDS certificate required.';
 
-  if (tdsAmount > 0 || (tdsSection && tdsSection !== 'NONE' && tdsSection !== 'NIL')) {
+  if (isUnmatchedCredit) {
+    deductionType = 'Unidentified Bank Deposit (No Invoice Matched)';
+    whereDeducted = 'Direct Bank Rail (Inward Remittance)';
+    destinationEntity = 'Bank Suspense Account (Liability)';
+    statutoryCode = 'BANK_SUSPENSE';
+    statutoryRule = 'Unidentified Direct Inflow parked in Suspense under Ind AS 109';
+    taxCertReq = 'Unidentified Remittance. Dispatched to Outbox to trace remitter / request invoice details.';
+  } else if (tdsAmount > 0 || (tdsSection && tdsSection !== 'NONE' && tdsSection !== 'NIL')) {
     deductionType = `Statutory TDS Withholding (@ ${tdsRate > 0 ? `${tdsRate}%` : '2%'})`;
     whereDeducted = `Withheld at Source by Deductor (${customerName})`;
     destinationEntity = 'Central Govt of India Treasury (CBDT / NSDL)';
@@ -242,13 +277,21 @@ export function StateMachineDAG({ transaction, onClose }) {
     statutoryRule = 'Agreed Commercial Prompt-Payment Credit Terms (e.g. 2/10 Net 30)';
     taxCertReq = 'Book to Discount Allowed Expense A/c against Credit Memo.';
   } else if (isException) {
-    const diff = cb.discrepancyAmount || (bankAmount - invoiceGross);
-    deductionType = `Unallocated Shortfall / Variance (₹${Math.abs(diff).toLocaleString('en-IN')})`;
-    whereDeducted = `Withheld / Underpaid by Customer (${customerName})`;
-    destinationEntity = 'Customer Operating Account / In-Transit Suspense';
-    statutoryCode = 'SUSPENSE_VARIANCE';
-    statutoryRule = 'Mathematical Circuit Breaker Mismatch (Exceeds Allowed Tolerance)';
-    taxCertReq = 'Escalated to Agentic Outbox. Dispatch WhatsApp/Email notice to request Form 16A or balance remittance.';
+    if (varianceExcess > 0) {
+      deductionType = `Customer Overpayment (+₹${varianceExcess.toLocaleString('en-IN')})`;
+      whereDeducted = `Remitted in Excess by Customer (${customerName})`;
+      destinationEntity = 'Customer Advance Account (Liability)';
+      statutoryCode = 'CUST_ADVANCE';
+      statutoryRule = 'Remittance Exceeds Outstanding Invoice Balance (Customer Advance)';
+      taxCertReq = 'Escalated to Agentic Outbox. Adjust against future invoice or refund to customer.';
+    } else {
+      deductionType = `Unallocated Shortfall / Variance (₹${varianceShortfall.toLocaleString('en-IN')})`;
+      whereDeducted = `Withheld / Underpaid by Customer (${customerName})`;
+      destinationEntity = 'Customer Operating Account / Shortfall Suspense';
+      statutoryCode = 'SUSPENSE_VARIANCE';
+      statutoryRule = 'Mathematical Circuit Breaker Mismatch (Exceeds Allowed Tolerance)';
+      taxCertReq = 'Escalated to Agentic Outbox. Dispatch WhatsApp/Email notice to request Form 16A or balance remittance.';
+    }
   }
 
   // Map backend dagNodes by nodeKey for 100% faithful execution rendering
@@ -396,7 +439,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                Live React Flow Trace: Ingest &rarr; 3-Tier Cascade &rarr; Math Circuit Breaker &rarr; General Ledger / Outbox
+                Reconciliation Pipeline: Ingest &rarr; 3-Tier Cascade &rarr; Math Circuit Breaker &rarr; General Ledger / Outbox
               </p>
             </div>
           </div>
@@ -435,7 +478,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                 title="Expand Accountant Tax & Deduction Inspector"
               >
                 <Calculator className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Accountant Audit HUD</span>
+                <span>Accountant Audit</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-200 font-mono">
                   {statutoryCode}
                 </span>
@@ -444,7 +487,7 @@ export function StateMachineDAG({ transaction, onClose }) {
             </div>
           ) : (
             <div className={`absolute ${CORNER_CLASSES[hudCorner]} z-20 w-[290px] rounded-xl bg-slate-900/95 border border-slate-700/90 shadow-2xl backdrop-blur-md overflow-hidden text-xs text-slate-200 select-none animate-in fade-in zoom-in-95 duration-150`}>
-              {/* Header: Title + Statutory Badge + TL/TR/BL/BR + Minimize */}
+              {/* Header: Title + Statutory Badge + TR/BR + Minimize */}
               <div className="flex items-center justify-between px-3 py-2 bg-slate-950/90 border-b border-slate-800">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <Calculator className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
@@ -457,7 +500,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                 <div className="flex items-center gap-1 shrink-0">
                   {/* 4-Corner Dock Switcher */}
                   <div className="flex items-center rounded bg-slate-800 p-0.5 border border-slate-700">
-                    {(['top-right', 'bottom-right']).map((c) => (
+                    {(['bottom-left', 'bottom-right']).map((c) => (
                       <button
                         key={c}
                         type="button"
@@ -467,7 +510,7 @@ export function StateMachineDAG({ transaction, onClose }) {
                         }`}
                         title={`Dock ${c.replace('-', ' ')}`}
                       >
-                        {c === 'top-right' ? 'T' : c === 'bottom-right' ? 'B' : 'B'}
+                        {c === 'bottom-left' ? 'L' : c === 'bottom-right' ? 'R' : 'R'}
                       </button>
                     ))}
                   </div>
@@ -485,25 +528,57 @@ export function StateMachineDAG({ transaction, onClose }) {
               {/* Compact Body — High-Signal Accountant Headaches */}
               <div className="p-2.5 space-y-2">
                 {/* 1. The Cash Reconciliation Numbers */}
-                <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-[10.5px] space-y-0.5">
-                  <div className="flex justify-between text-slate-300">
-                    <span>Gross Invoice:</span>
-                    <span className="font-semibold text-white">₹{invoiceGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                {isUnmatchedCredit ? (
+                  <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-[10.5px] space-y-0.5">
+                    <div className="flex justify-between text-slate-300">
+                      <span>Matched Invoice:</span>
+                      <span className="font-semibold text-rose-400">None (Unmatched Direct Inflow)</span>
+                    </div>
+                    <div className="flex justify-between text-amber-400">
+                      <span>Unallocated Bank Deposit:</span>
+                      <span className="font-semibold">+₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-400 pt-1 border-t border-slate-800/80 font-bold">
+                      <span className="font-sans">Net Bank Credit:</span>
+                      <span>₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-amber-400">
-                    <span>{isException ? 'Discrepancy (Shortfall):' : `Less ${statutoryCode} (${tdsRate > 0 ? `${tdsRate}%` : 'TDS'}):`}</span>
-                    <span className="font-semibold">-₹{totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                ) : isException && varianceExcess > 0 ? (
+                  <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-[10.5px] space-y-0.5">
+                    <div className="flex justify-between text-slate-300">
+                      <span>Gross Invoice:</span>
+                      <span className="font-semibold text-white">₹{invoiceGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-400">
+                      <span>Customer Overpayment:</span>
+                      <span className="font-semibold">+₹{varianceExcess.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-400 pt-1 border-t border-slate-800/80 font-bold">
+                      <span className="font-sans">Net Bank Credit:</span>
+                      <span>₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between text-emerald-400 pt-1 border-t border-slate-800/80 font-bold">
-                    <span className="font-sans">Net Bank Credit:</span>
-                    <span>₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                ) : (
+                  <div className="p-2 rounded-lg bg-slate-950/80 border border-slate-800 font-mono text-[10.5px] space-y-0.5">
+                    <div className="flex justify-between text-slate-300">
+                      <span>Gross Invoice:</span>
+                      <span className="font-semibold text-white">₹{invoiceGross.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-amber-400">
+                      <span>{isException ? 'Discrepancy (Shortfall):' : `Less ${statutoryCode} (${tdsRate > 0 ? `${tdsRate}%` : 'TDS'}):`}</span>
+                      <span className="font-semibold">-₹{totalDeductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-400 pt-1 border-t border-slate-800/80 font-bold">
+                      <span className="font-sans">Net Bank Credit:</span>
+                      <span>₹{bankAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* 2. Where Deducted & Tax Base (CBDT Cir 23/2017) */}
                 <div className="space-y-1 text-[10px] leading-tight text-slate-300">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Withheld by:</span>
+                    <span className="text-slate-400">{isUnmatchedCredit ? 'Remitted by:' : 'Withheld by:'}</span>
                     <span className="text-white font-medium truncate max-w-[170px] text-right">{customerName}</span>
                   </div>
                   <div className="flex justify-between">
@@ -525,22 +600,38 @@ export function StateMachineDAG({ transaction, onClose }) {
                     <span>Accountant Actions:</span>
                   </div>
                   <p className="leading-snug text-slate-300">
-                    {tdsAmount > 0
+                    {isUnmatchedCredit
+                      ? '• Unidentified Credit • Logged in Outbox • Trace remitter UTR & request invoice reference • Parked in Suspense until claimed.'
+                      : tdsAmount > 0
                       ? '• Await Form 16A from client • Match credit in 26AS / AIS on TRACES portal.'
+                      : isException && varianceExcess > 0
+                      ? '• Customer Overpayment • Credit customer ledger • Adjust against future billing or process refund.'
                       : isException
-                      ? '• Discrepancy logged in Outbox • Request remittance advice / Form 16A.'
+                      ? '• Discrepancy logged in Outbox • Request remittance advice / Form 16A from customer.'
                       : '• 100% Gross match • Zero withholding • No Form 16A certificate needed.'}
                   </p>
                 </div>
 
                 {/* 4. Double-Entry GL Impact (Single Clean Line) */}
-                <div className="pt-1 border-t border-slate-800/80 font-mono text-[8.6px] text-slate-400 flex justify-between">
+                <div className="pt-1 border-t border-slate-800/80 font-mono text-[9px] text-slate-400 flex justify-between">
                   <span className="text-slate-500">GL:</span>
-                  <span className="text-slate-300">
-                    {isException && varianceShortfall > 0
-                      ? `Dr Bank ₹${(bankAmount / 1000).toFixed(1)}k •Dr Suspense ₹${(varianceShortfall / 1000).toFixed(1)}k •Cr AR ₹${(invoiceGross / 1000).toFixed(1)}k`
-                      : `Dr Bank ₹${(bankAmount / 1000).toFixed(1)}k •Dr TDS ₹${(totalDeductions / 1000).toFixed(1)}k •Cr AR ₹${(invoiceGross / 1000).toFixed(1)}k`}
-                  </span>
+                  {isUnmatchedCredit ? (
+                    <p className="text-slate-300">
+                      Dr Bank ₹{(bankAmount / 1000).toFixed(1)}k • Cr Bank Suspense Liability ₹{(bankAmount / 1000).toFixed(1)}k
+                    </p>
+                  ) : isException && varianceExcess > 0 ? (
+                    <p className="text-slate-300">
+                      Dr Bank ₹{(bankAmount / 1000).toFixed(1)}k • Cr AR ₹{(invoiceGross / 1000).toFixed(1)}k • Cr Customer Advance ₹{(varianceExcess / 1000).toFixed(1)}k
+                    </p>
+                  ) : isException && varianceShortfall > 0 ? (
+                    <p className="text-slate-300">
+                      Dr Bank ₹{(bankAmount / 1000).toFixed(1)}k • Dr Shortfall Suspense ₹{(varianceShortfall / 1000).toFixed(1)}k • Cr AR ₹{(invoiceGross / 1000).toFixed(1)}k
+                    </p>
+                  ) : (
+                    <p className="text-slate-300">
+                      Dr Bank ₹{(bankAmount / 1000).toFixed(1)}k{totalDeductions > 0 ? ` • Dr TDS ₹${(totalDeductions / 1000).toFixed(1)}k` : ''} • Cr AR ₹{(invoiceGross / 1000).toFixed(1)}k
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
