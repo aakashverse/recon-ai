@@ -156,19 +156,6 @@ Natively evaluates statutory withholdings per the Indian Income Tax Act 1961 and
 
 ---
 
-## 📊 Business Impact & Economic Comparison
-
-| Metric | Traditional Manual Close | Naive LLM Wrapper | Razorpay Recon AI |
-| :--- | :--- | :--- | :--- |
-| **Month-End Close Cycle** | 10–15 Business Days | 3–5 Days | **Real-Time (Continuous Zero-Day Close)** |
-| **Cost per 10,000 Transactions** | ~₹4,00,000 (Manual labor) | ~₹40,000 ($0.05/API call) | **<₹350 (~$4.20 via Restraint-First Cascade)** |
-| **Average Processing Latency** | 24–48 Hours per batch | 1,500ms–3,000ms | **<3.8ms average (85% resolved <2ms)** |
-| **Mathematical Error Rate** | 2.5% – 4.0% (Human fatigue) | 4.0% – 8.0% (LLM hallucinations) | **0.000% (Zero-Trust Circuit Breaker Guard)** |
-| **Audit Preparation Time** | 3 Weeks of manual sampling | Not auditable (Black box) | **1-Click Cryptographic Merkle Proof Export** |
-| **Compliance Proof** | Fragmented spreadsheets | None | **Balanced Double-Entry GL + Ind AS 109 Suspense** |
-
----
-
 ## 🔍 Glass-Box State Machine DAG & Accountant HUD
 
 Every transaction can be inspected down to the microsecond in the **Execution State Machine & Audit DAG** modal:
@@ -234,13 +221,13 @@ When an anonymous direct deposit enters the bank with no matching invoice (e.g. 
 
 ## 📁 Evaluation Datasets Included
 
-The repository includes 3 authentic, benchmark-ready datasets in `datasets/`:
+The repository includes 3 benchmark-ready datasets in `datasets/`:
 
 1. **`kaggle-accounting-financial-management.csv` / `kaggle-reconciliation-100.json`**:
    - 100 enterprise B2B transactions derived from real-world corporate financial management datasets.
    - Evaluates multi-source feeds, exact UTRs, and standard credit terms.
 2. **`indian-b2b-accounts-batch.json`**:
-   - 25 authentic Indian B2B transactions featuring all statutory TDS sections (194C, 194J, 194H, 194Q, 206AB), multi-rate withholdings, and base value ex-GST calculations.
+   - 25 Indian B2B transactions featuring all statutory TDS sections (194C, 194J, 194H, 194Q, 206AB), multi-rate withholdings, and base value ex-GST calculations.
 3. **`sample-chaos-20-real-world.json` / `sample-chaos-20-nightmare.json`**:
    - 20 adversarial edge cases: OCR typo invoice numbers (`2O24-8OO1`), bounded multi-invoice splits, anonymous deposits, and customer underpayments.
 
