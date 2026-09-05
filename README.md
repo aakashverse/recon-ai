@@ -15,29 +15,29 @@
 
 In enterprise B2B commerce, **reconciliation is where automated software traditionally breaks down**. Finance controllers spend 10 to 15 days at every month-end manually chasing unmapped UTRs, deciphering cryptic bank narrations, and reconciling statutory tax withholdings.
 
-Most modern "AI finance solutions" take a dangerous approach: they feed uncurated bank lines directly into raw LLM prompts and blindly trust the generated figures. **In finance, an LLM that hallucinates by ₹1.00 can trigger an audit disqualification or regulatory penalty.**
+Most modern "AI finance solutions" take a dangerous approach: they feed uncurated bank lines directly into raw LLM prompts and blindly trust the generated figures. **In finance, an LLM that hallucinates by even ₹1.00 can trigger an audit disqualification or regulatory penalty.**
 
-### Our Design Thesis: *Restraint-First, Glass-Box AI*
-Automation must **augment accountant judgment, never replace it**. Recon AI establishes a new standard for financial software:
+### Core Design Thesis: *Restraint-First, Glass-Box AI*
+Automation must **augment accountant judgment, never replace it**. Recon AI establishes a rigorous standard for financial software:
 1. **Restraint-First Economics**: ~85–90% of transactions resolve deterministically in `<5ms` at **$0.00 token cost**. Gemini GenAI is restricted strictly to unstructured residuals and OCR typos.
-2. **Zero-Trust Arithmetic Circuit Breaker**: We **never trust model arithmetic**. A deterministic Node.js engine enforces absolute mathematical equality: $\text{Gross Invoice} - \text{Deductions} \equiv \text{Bank Received}$. A discrepancy of even ₹0.01 immediately trips the breaker and routes to the Agentic Outbox.
+2. **Zero-Trust Arithmetic Circuit Breaker**: **Never trust model arithmetic**. A deterministic Node.js engine enforces absolute mathematical equality: $\text{Gross Invoice} - \text{Deductions} \equiv \text{Bank Received}$. A discrepancy of even ₹0.01 immediately trips the breaker and routes to the Agentic Outbox.
 3. **Double-Entry Auto-Journaling**: Every reconciled transaction automatically posts a balanced General Ledger journal entry ($\text{Dr Bank} + \text{Dr TDS} = \text{Cr AR}$), maintaining a live, continuous trial balance.
 4. **Cryptographic Proof of Provenance**: Every state change, exception, and accountant override is immutably linked into a SHA-256 Merkle audit hash chain ($H_i = \text{SHA-256}(H_{i-1} + \text{Event Data})$).
 
 ---
 
-## 🎯 Rubric Mapping & Verification Guide (For Judges)
+## 🎯 Rubric Mapping & Verification Guide
 
-| Judging Axis | What We Built & Our Implementation | Live Proof / Verification Command |
+| Judging Axis | Architecture & Implementation | Live Proof / Verification Command |
 | :--- | :--- | :--- |
-| **1. Problem Taste** *(Did you pick something that matters?)* | Authentically unified all **4 Track-04 Directions**: **Multi-Source Inflow Reconciliation**, **Indian Statutory Tax-Line Matcher** (TDS 194C/194J/194H/194Q/206AB/GST-TDS), **Settlement Q&A Natural Language Agent**, and **Forward 30/60/90-Day Cash Forecaster**. Plus **Rillet-style Double-Entry General Ledger** and **Continuous Zero-Day Close**. | Launch dashboard: Open **"General Ledger & Close"**, **"AI Controller & Forecaster"**, and click any row for the **Execution State Machine DAG**. |
-| **2. Build Quality** *(Does it run, is it structured, would you trust it?)* | Built on production ACID multi-document transactions, deterministic SHA-256 idempotency guards, a **Factual Ground-Truth Database Claim Validation Gate**, and an **Immutable Merkle Hash Chain**. Complete **1-Command Setup** via Docker Compose or native scripts. | Run `docker-compose up`<br/>*or* run `npm test` in `backend/` (28/28 passing). |
-| **3. AI Judgment** *(Right tool in right place, & where we chose NOT to use one)* | **Restraint-First Architecture**: Deterministic Tier 1 & Tier 2 resolve standard flows in `<5ms`. Google Gemini 1.5 Flash + MongoDB Vector Embeddings (Gemini 3072-dim) handle unstructured OCR text. **Arithmetic is strictly barred from the LLM** and enforced by the Circuit Breaker. | Read [AI Decision Log (`docs/AI_DECISIONS.md`)](docs/AI_DECISIONS.md) and run `npm run eval-genai:mock`. |
-| **4. Failure Recovery** *(What broke, and what you did about it)* | Hardened against real-world adversarial attacks: **Prompt Injections in Bank Narrations** (`WORST-21`), **Simulated Gemini API Outages** (graceful non-blocking degradation), **Reversible Hash-Chained Overrides**, and **Ind AS 109 Bank Suspense routing** for unidentified deposits. | Run adversarial test suite:<br/>`cd backend && npm test`<br/>`npm run fault-demo` |
+| **1. Problem Taste** *(High-Impact Domain)* | Authentically unifies all **4 Track-04 Directions**: **Multi-Source Inflow Reconciliation**, **Indian Statutory Tax-Line Matcher** (TDS 194C/194J/194H/194Q/206AB/GST-TDS), **Settlement Q&A Natural Language Agent**, and **Forward 30/60/90-Day Cash Forecaster**. Plus a **Rillet-style Double-Entry General Ledger** and **Continuous Zero-Day Close**. | Launch dashboard: Open **"General Ledger & Close"**, **"AI Controller & Forecaster"**, and click any row for the **Execution State Machine DAG**. |
+| **2. Build Quality** *(Production Engineering)* | Built on production ACID multi-document transactions, deterministic SHA-256 idempotency guards, a **Factual Ground-Truth Database Claim Validation Gate**, and an **Immutable Merkle Hash Chain**. Complete **1-Command Setup** via Docker Compose or native scripts. | Run `docker-compose up`<br/>*or* run `npm test` in `backend/` (28/28 passing). |
+| **3. AI Judgment** *(Strategic Restraint)* | **Restraint-First Architecture**: Deterministic Tier 1 & Tier 2 resolve standard flows in `<5ms`. Google Gemini 1.5 Flash + MongoDB Vector Embeddings (Gemini 3072-dim) handle unstructured OCR text. **Arithmetic is strictly barred from the LLM** and enforced by the Circuit Breaker. | Read [AI Decision Log (`docs/AI_DECISIONS.md`)](docs/AI_DECISIONS.md) and run `npm run eval-genai:mock`. |
+| **4. Failure Recovery** *(Adversarial Resilience)* | Hardened against real-world adversarial attacks: **Prompt Injections in Bank Narrations** (`WORST-21`), **Simulated Gemini API Outages** (graceful non-blocking degradation), **Reversible Hash-Chained Overrides**, and **Ind AS 109 Bank Suspense routing** for unidentified deposits. | Run adversarial test suite:<br/>`cd backend && npm test`<br/>`npm run fault-demo` |
 
 ---
 
-## 🚀 1-Command Setup (For Judges & Evaluators)
+## 🚀 1-Command Setup
 
 ### Option A: Docker Compose (Zero Prerequisites)
 ```bash
@@ -58,6 +58,8 @@ chmod +x setup.sh && ./setup.sh
 
 ## 🏛️ System Architecture: 3-Tier Cascade + Double-Entry GL
 
+Recon AI employs a **3-Tier Cascade Architecture** with an independent Factual Ground-Truth Gate and Zero-Trust Mathematical Circuit Breaker:
+
 ```mermaid
 flowchart TD
     subgraph INGESTION["1. Ingestion & Pre-Processing"]
@@ -68,7 +70,7 @@ flowchart TD
 
     subgraph CASCADE["2. Restraint-First 3-Tier Cascade"]
         TIER1[Tier 1: Deterministic Exact Matcher<br/>Exact UTR & Gross Invoice Lookup <2ms]
-        TIER1 -->|No Exact Match / Deductions| TIER2[Tier 2: Rules, Tolerance & Split Engine<br/>Statutory TDS 194C/J/H/Q + Bounded Split <5ms]
+        TIER1 -->|No Exact Match / Deductions| TIER2[Tier 2: Rules, Tolerance & Split Engine<br/>Statutory TDS + Learned Rules + Bounded Split <5ms]
         TIER2 -->|Unstructured Delta / OCR Typos| TIER3[Tier 3: GenAI Worker Pool & RAG Cache<br/>Gemini 1.5 Flash + 3072-dim Vector Store <200ms]
     end
 
@@ -98,6 +100,29 @@ flowchart TD
 
 ---
 
+## ⚙️ The 3-Tier Reconciliation Engine Explained
+
+### Tier 1: Deterministic Exact Matcher (`<2ms`, $0.00 Token Cost)
+- Evaluates exact Gross Invoice Amount, unique UTR tokens, and strict counterparty identifiers.
+- Reconciles straightforward inflows with zero deductions in under 2ms.
+- 100% deterministic code. Handles ~25–35% of total inflow volume.
+
+### Tier 2: Rules, Tolerance & Split Engine (`<5ms`, $0.00 Token Cost)
+- **Combined Rules & Split Architecture**: Unifies statutory withholding verification, learned counterparty rules, and multi-invoice settlement in a single high-speed execution step.
+  - **Statutory TDS Tables**: Natively evaluates Indian statutory withholding sections (194C, 194J, 194H, 194Q, 206AB, Section 51 CGST).
+  - **Learned Vendor Rules**: Matches recurring counterparty-specific deduction patterns from historical confirmations.
+  - **Bounded Multi-Invoice Split Matcher**: Employs a deterministic bounded subset-sum engine ($k \le 4$) to resolve 1 bank deposit settling multiple distinct invoices.
+- Resolves ~45–55% of transactions deterministically without incurring API costs.
+
+### Tier 3: GenAI Worker Pool & RAG Cache (`~200ms`, $0.005 / $0.00 on Cache Hit)
+- Invoked **only** when Tiers 1 and 2 cannot explain transaction delta.
+- Powered by **Google Gemini 1.5 Flash** with concurrency control (`p-limit`).
+- **MongoDB Vector Store (Gemini 3072-dim Embeddings)**: Semantically maps unstructured narrations and messy descriptions to statutory tax rule embeddings.
+- **RAG Fingerprint Cache**: Eliminates redundant API calls for recurring narration formats, dropping token cost to $0.00.
+- Handles remaining ~10–15% unstructured residuals and OCR typos (`2O24-8OO1`).
+
+---
+
 ## 💎 All 4 Track-04 Directions Authentically Built
 
 ### 1. Multi-Source Reconciliation & Double-Entry General Ledger
@@ -120,9 +145,9 @@ Natively evaluates statutory withholdings per the Indian Income Tax Act 1961 and
 ### 3. Settlement Q&A Natural Language Agent (`/api/reconciliation/assistant-chat`)
 - Natural-language financial assistant grounded strictly in verified MongoDB collections.
 - Answers complex executive queries:
-  - *"What is our total TDS withheld under Section 194J vs 194C this quarter?"*
-  - *"Show me high-value discrepancies in Outbox exceeding ₹50,000."*
-  - *"What is our current reconciliation match precision across all tiers?"*
+  - *"What is total TDS withheld under Section 194J vs 194C this quarter?"*
+  - *"Show high-value discrepancies in Outbox exceeding ₹50,000."*
+  - *"What is current reconciliation match precision across all tiers?"*
 
 ### 4. Forward Cash Forecaster (`/api/reconciliation/cash-forecast`)
 - Probabilistic **30/60/90-Day Cash Flow Projection**:
@@ -274,7 +299,7 @@ recon-ai/
 │   │   │   └── TaxRuleVector.js      # Vector embeddings for semantic rule RAG
 │   │   ├── services/
 │   │   │   ├── tier1Matcher.js       # Deterministic Exact Matcher (<2ms)
-│   │   │   ├── tier2ToleranceMatcher.js # Statutory TDS & Split Matcher (<5ms)
+│   │   │   ├── tier2ToleranceMatcher.js # Rules & Split Engine: Statutory TDS, Rules, Split (<5ms)
 │   │   │   ├── tier3GenAIPool.js     # Gemini 1.5 Flash + RAG Worker Pool (<200ms)
 │   │   │   ├── vectorStoreService.js # MongoDB Vector Store (Gemini 3072-dim)
 │   │   │   ├── circuitBreaker.js     # Zero-Trust Deterministic Math Verifier
