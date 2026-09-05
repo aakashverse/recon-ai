@@ -6,7 +6,6 @@
 [![CI Verification Suite](https://github.com/aakashverse/recon-ai/actions/workflows/ci.yml/badge.svg)](.github/workflows/ci.yml)
 [![AI Decision Log](https://img.shields.io/badge/Architecture-AI_Decision_Log-blue.svg)](docs/AI_DECISIONS.md)
 [![Test Suite](https://img.shields.io/badge/Tests-28%2F28%20Passing-emerald.svg)](backend/test)
-[![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg)](LICENSE)
 [![Docker Ready](https://img.shields.io/badge/Docker-1--Command%20Setup-blueviolet.svg)](docker-compose.yml)
 
 ---
@@ -333,8 +332,5 @@ recon-ai/
 └── setup.sh                          # Automated Linux/macOS Setup Script
 ```
 
----
 
-## ⚖️ License
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more information. Built for the **Razorpay Buildathon 2026** (Track-04: AI Finance Controller).
